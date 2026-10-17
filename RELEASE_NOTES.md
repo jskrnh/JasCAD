@@ -1,6 +1,6 @@
 # Forge — Release notes
 
-**Project website:** https://forge-cad.pages.dev (pending first deploy; test build at https://test.forge-cad.pages.dev)
+**Project website:** forge-cad on Cloudflare Workers (address confirmed after the first successful deploy)
 
 ## v0.1.0 — Phase 1 (2026-10-17)
 
@@ -52,3 +52,8 @@ The first working build of the browser CAD app. It has a real B-rep kernel, a pa
 - **Cloudflare Pages:** ready to deploy as the project `forge-cad`. `npm run deploy:test` publishes to the test URL, and `npm run deploy:prod` publishes to the live site.
 - **Caching:** `_headers` caches the kernel for a year, serves `.wasm` with the correct type, and allows WebHID so the SpaceMouse works on the site.
 - **Upload bundle:** `forge-pages-dist.zip` is a ready-to-upload build for the Cloudflare dashboard. Every file is under the Pages 25 MiB limit.
+
+## v0.1.3 — Cloudflare Workers deploy fix (2026-10-17)
+
+### Fixed
+- **Deploy:** the Cloudflare project is a Worker, so `wrangler deploy` needs an assets directory. `wrangler.toml` now serves `./dist` as static assets, with single-page fallback.

@@ -9,8 +9,8 @@
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
     "desktop": "npm run build && rm -rf desktop/web && cp -r dist desktop/web && cd desktop && npm install && npx electron-packager . Forge --platform=win32 --arch=x64 --out=../release --overwrite --asar",
-    "deploy:test": "npm run build && wrangler pages deploy dist --project-name forge-cad --branch test",
-    "deploy:prod": "npm run build && wrangler pages deploy dist --project-name forge-cad --branch main"
+    "deploy:test": "npm run build && wrangler versions upload",
+    "deploy:prod": "npm run build && wrangler deploy"
   },
   "keywords": [],
   "author": "",

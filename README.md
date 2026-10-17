@@ -14,18 +14,22 @@ npm run preview      # serve dist/ locally
 
 Requires Node 20+. Chrome or Edge is recommended (needed for the SpaceMouse); Firefox and Safari work for everything else.
 
-## Deploy (GitHub → Cloudflare Pages)
+## Deploy (GitHub → Cloudflare Workers)
 
-Every push to `main` deploys automatically once the Pages project is connected to this repo.
+The Cloudflare project `forge-cad` is connected to this repo, with these settings:
 
-| Cloudflare Pages setting | Value |
+| Setting | Value |
 |---|---|
-| Framework preset | None |
 | Build command | `npm run build` |
-| Build output directory | `dist` |
-| Environment variable | `NODE_VERSION` = `22` |
+| Deploy command | `npx wrangler deploy` |
+| Non-production branch deploy command | `npx wrangler versions upload` |
 
-Pushes to any other branch (for example `test`) get their own preview URL, which serves as the test site before a change goes live. `public/_headers` caches the kernel, serves `.wasm` correctly, and allows WebHID for the SpaceMouse.
+`wrangler.toml` serves `./dist` as static assets.
+
+- **Live:** a push to `main` deploys to production.
+- **Test:** a push to `test` uploads a preview version with its own URL, which is used to check changes before they go live.
+
+`public/_headers` caches the kernel, serves `.wasm` correctly, and allows WebHID for the SpaceMouse.
 
 To build the Windows desktop app, run `npm run desktop`. The output goes to `release/`.
 
