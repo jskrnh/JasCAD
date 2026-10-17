@@ -1,0 +1,13 @@
+{
+  "name": "forge",
+  "productName": "Forge",
+  "version": "0.1.0",
+  "description": "Parametric CAD for 3D-printable parts",
+  "main": "main.cjs",
+  "author": "Forge",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "44.9.0",
+    "@electron/packager": "^20.3.0"
+  }
+}

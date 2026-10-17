@@ -1,0 +1,54 @@
+/// <reference lib="webworker" />
+// Geometry worker: owns the OpenCASCADE kernel so the UI never blocks during rebuilds.
+import opencascade from 'replicad-opencascadejs';
+import wasmUrl from 'replicad-opencascadejs/wasm?url';
+import * as R from 'replicad';
+import { Builder } from './build';
+import type { Project } from '../model/types';
+
+let builder: Builder | null = null;
+let lastBodies: any[] = [];
+const ready = (async () => {
+  const oc = await (opencascade as any)({ locateFile: () => wasmUrl });
+  R.setOC(oc);
+  builder = new Builder(R);
+})();
+
+// Queue: only the newest rebuild request matters while one is running.
+let pending: { id: number; project: Project } | null = null;
+let busy = false;
+
+async function pump() {
+  if (busy || !pending) return;
+  busy = true;
+  const job = pending; pending = null;
+  try {
+    await ready;
+    const res = builder!.rebuild(job.project);
+    lastBodies = res.bodies;
+    const { bodies, ...out } = res;
+    const transfer: Transferable[] = [];
+    if (out.mesh) transfer.push(out.mesh.vertices.buffer, out.mesh.normals.buffer, out.mesh.triangles.buffer);
+    if (out.edges) transfer.push(out.edges.lines.buffer);
+    (self as any).postMessage({ type: 'rebuilt', id: job.id, result: out }, transfer);
+  } catch (e: any) {
+    (self as any).postMessage({ type: 'rebuilt', id: job.id, result: { ok: false, mesh: null, edges: null, faces: [], edgeInfo: [], sketches: [], props: null, errors: [{ featureId: '', message: String(e?.message || e) }], ms: 0 } });
+  }
+  busy = false;
+  pump();
+}
+
+self.onmessage = async (ev: MessageEvent) => {
+  const msg = ev.data;
+  if (msg.type === 'init') { await ready; (self as any).postMessage({ type: 'ready' }); return; }
+  if (msg.type === 'rebuild') { pending = { id: msg.id, project: msg.project }; pump(); return; }
+  if (msg.type === 'export') {
+    await ready;
+    try {
+      if (!lastBodies.length) throw new Error('Nothing to export yet');
+      const blob = msg.format === 'step' ? builder!.exportSTEP(lastBodies) : builder!.exportSTL(lastBodies, true);
+      const buf = await blob.arrayBuffer();
+      (self as any).postMessage({ type: 'exported', id: msg.id, buf }, [buf]);
+    } catch (e: any) { (self as any).postMessage({ type: 'exported', id: msg.id, error: String(e?.message || e) }); }
+  }
+};
