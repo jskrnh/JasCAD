@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>jasCAD</title>
+  <meta name="description" content="jasCAD: parametric 3D CAD in your browser. Based on the open-source SolidCraft project.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="jasCAD">
+  <meta property="og:title" content="jasCAD: parametric CAD in your browser">
+  <meta property="og:url" content="https://jascad.jskrnh.xyz/">
+  
+<script type="module">
+import init, * as bindings from './solidcraft-web-96943b96b0a23e34.js';
+const wasm = await init({ module_or_path: (async () => { const bufs = await Promise.all(["./solidcraft-web-96943b96b0a23e34_bg.wasm.part0", "./solidcraft-web-96943b96b0a23e34_bg.wasm.part1", "./solidcraft-web-96943b96b0a23e34_bg.wasm.part2"].map((u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); }))); const out = new Uint8Array(bufs.reduce((n, b) => n + b.byteLength, 0)); let o = 0; for (const b of bufs) { out.set(new Uint8Array(b), o); o += b.byteLength; } return out; })() });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  
+  
+  <link rel="stylesheet" href="./loading-b189d55be2a88ce3.css" integrity="sha384-m7IlvAU31env5f5Huey9LzO/ALGdq9fo6w/mHfjCPR2Z3a6jxvQ/UIax1vQtUPFe"/>
+  
+  <!-- Installable as an app (manifest.webmanifest); the icons are the Linux exports of the app mark. -->
+  <meta name="theme-color" content="#ffffff">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/jascad-32.png">
+  <link rel="apple-touch-icon" href="icons/jascad-256.png">
+  
+  
+  
+  
+<link rel="modulepreload" href="./solidcraft-web-96943b96b0a23e34.js" crossorigin="anonymous" integrity="sha384-0pzWmbiF2fwWcWnU0xkFVE9Dp1LDJp+COqHx5SZO2Nr7tYbEqczskww500RmSRpW"></head>
+<body>
+  <canvas id="solidcraft_canvas"></canvas>
+  <div id="solidcraft_loading" role="status"><img src="jascad-logo.svg" alt=""><span class="sr-only">Loading jasCAD&hellip;</span></div>
+  <script>
+    // Offline use and updates (sw.js; written into release builds by `cargo xtask web-offline`).
+    if ("serviceWorker" in navigator) {
+      addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+    // Install as an app: the browser's offer can come before the app runs, so it is kept here for
+    // the app's File ▸ Install app… item (src/install.rs). Installed, the browser makes no more offers.
+    addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); window.solidcraftInstall = e; });
+    addEventListener("appinstalled", () => { window.solidcraftInstall = null; });
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "jasCAD",
+  "short_name": "jasCAD",
+  "description": "Parametric 3D CAD in your browser, based on SolidCraft.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icons/jascad-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "icons/jascad-256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "icons/jascad-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
