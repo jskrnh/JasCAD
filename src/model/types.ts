@@ -1,4 +1,4 @@
-// Forge parametric feature tree — open, versioned JSON format ("pft/1.0").
+// jasCAD parametric feature tree — open, versioned JSON format ("pft/1.0").
 // Every numeric field is an expression string ("20", "wall*2", "len/2+3") evaluated against `variables`.
 
 export type Expr = string;

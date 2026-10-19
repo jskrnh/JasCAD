@@ -1,4 +1,4 @@
-# Forge — parametric CAD for 3D-printable parts
+# jasCAD — parametric CAD for 3D-printable parts
 
 A lightweight, SolidWorks-style parametric modeller that runs entirely in the browser. It uses the OpenCASCADE B-rep kernel (compiled to WebAssembly), a Three.js viewport and an open JSON feature-tree format.
 
@@ -70,7 +70,7 @@ tests/                 Node tests that run the real kernel
 - **Rebuilds are incremental.** Each feature's result is cached, keyed by a hash of everything above it, so editing a late feature only recomputes from that point.
 - **References are geometric.** A picked edge stores a point, a tangent and a curve type; a face stores a point, a normal and a surface type. After an upstream change, the kernel matches each reference one-to-one to the closest entity of the same type and direction.
 
-## Feature-tree format (`.forge.json`)
+## Feature-tree format (`.jascad.json`)
 
 The format is plain, versioned and diffable JSON. Every dimension is an expression string, so the file stays parametric.
 
@@ -109,7 +109,7 @@ The view is Z-up, so the XY plane is the build plate. Top = XY, Front = XZ (norm
 
 ## Licences
 
-Forge's code is yours. Bundled libraries:
+jasCAD's code is yours. Bundled libraries:
 
 - replicad: MIT.
 - three.js: MIT.

@@ -1,6 +1,8 @@
-# Forge — Release notes
+# jasCAD — Release notes
 
 **Project website:** forge-cad on Cloudflare Workers (address confirmed after the first successful deploy)
+
+*jasCAD was called Forge before v0.2.0.*
 
 ## v0.1.0 — Phase 1 (2026-10-17)
 
@@ -57,3 +59,14 @@ The first working build of the browser CAD app. It has a real B-rep kernel, a pa
 
 ### Fixed
 - **Deploy:** the Cloudflare project is a Worker, so `wrangler deploy` needs an assets directory. `wrangler.toml` now serves `./dist` as static assets, with single-page fallback.
+
+## v0.2.0 — Renamed to jasCAD (2026-10-19)
+
+### Changed
+- **Name:** the app is now called **jasCAD** everywhere: header, browser tab title, loading screen, settings footer and Windows window title.
+- **Desktop app:** the Windows build now produces `jasCAD.exe`.
+- **Project files:** saved projects now use `.jascad.json`. Older `.forge.json` files still open.
+
+### Unchanged
+- Work already saved in the browser carries over: autosave and navigation settings are kept.
+- The GitHub repo (`jskrnh/forge-cad`) and the Cloudflare project name are unchanged, so the deploy setup keeps working. Both can be renamed later if you want.

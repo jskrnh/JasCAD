@@ -160,7 +160,7 @@ class App {
     const el = $('#top');
     const preset = this.nav.preset;
     el.innerHTML = `
-      <div class="brand">${logo()}<span>Forge</span></div>
+      <div class="brand">${logo()}<span>jasCAD</span></div>
       <div style="display:flex;gap:2px">
         <button class="tbtn" id="fileBtn" aria-haspopup="menu">File</button>
         <button class="tbtn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" ${this.past.length || this.edit ? '' : 'disabled'}>${icon('undo', 16)}</button>
@@ -1110,7 +1110,7 @@ class App {
       { label: 'New part', icon: 'file', run: () => { if (confirm('Start a new part? Unsaved changes in this one are kept in undo history only.')) this.commit(() => { this.project = newProject(); this.partColor = '#9fb3cc'; this.viewer.setReference(null); }); } },
       { label: 'Open sample bracket', icon: 'part', run: () => this.commit(() => { this.project = demoProject(); }) },
       { label: 'Open project…', icon: 'open', run: () => this.openProject(), k: 'Ctrl+O' },
-      { label: 'Save project (.forge.json)', icon: 'save', run: () => this.exportJSON(), k: 'Ctrl+S' },
+      { label: 'Save project (.jascad.json)', icon: 'save', run: () => this.exportJSON(), k: 'Ctrl+S' },
       { sep: true },
       { label: 'Export STEP (AP214)', icon: 'exportStep', run: () => this.exportFile('step') },
       { label: 'Export STL (binary)', icon: 'exportStl', run: () => this.exportFile('stl') },
@@ -1178,7 +1178,7 @@ class App {
           <button class="${page === 'nav' ? 'on' : ''}" data-page="nav">Navigation &amp; input</button>
           <button class="${page === 'display' ? 'on' : ''}" data-page="display">Display</button>
           <button data-page="print">Printer &amp; material</button>
-          <div style="margin-top:auto;padding:10px;color:var(--muted);font-size:12px">Forge 0.1 · Phase 1</div></nav>
+          <div style="margin-top:auto;padding:10px;color:var(--muted);font-size:12px">jasCAD 0.2 · Phase 1</div></nav>
         <div class="dlg-main">
         ${page === 'nav' ? `
           <div><h1>Navigation &amp; input</h1><p class="hint" style="margin:6px 0 0">Pick a mouse scheme you already know. Left click always selects.</p></div>
@@ -1249,15 +1249,15 @@ class App {
   }
   exportJSON() {
     const p = clone(this.project); (p as any).color = this.partColor;
-    this.download(JSON.stringify(p, null, 2), `${this.safeName()}.forge.json`, 'application/json');
+    this.download(JSON.stringify(p, null, 2), `${this.safeName()}.jascad.json`, 'application/json');
   }
   pickFile(accept: string): Promise<File | null> {
     return new Promise((res) => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files?.[0] || null); i.click(); });
   }
   async openProject() {
-    const f = await this.pickFile('.json,.forge.json'); if (!f) return;
+    const f = await this.pickFile('.json,.jascad.json,.forge.json'); if (!f) return;
     const p = safeParse(await f.text());
-    if (!p || p.format !== 'pft/1.0' || !Array.isArray(p.features)) return this.toast('Not a Forge project (expected format "pft/1.0")');
+    if (!p || p.format !== 'pft/1.0' || !Array.isArray(p.features)) return this.toast('Not a jasCAD project (expected format "pft/1.0")');
     this.commit(() => { this.project = p; this.partColor = (p as any).color || '#9fb3cc'; });
     this.toast(`Opened ${p.name}`);
     setTimeout(() => this.viewer.fit(), 400);

@@ -1,4 +1,4 @@
-// Forge desktop shell (Electron). Serves the built web app over a private secure scheme
+// jasCAD desktop shell (Electron). Serves the built web app over a private secure scheme
 // so module workers, WebAssembly and WebHID (SpaceMouse) all work offline.
 const { app, BrowserWindow, protocol, net, session, shell, Menu } = require('electron');
 const path = require('node:path');
@@ -14,7 +14,7 @@ const VENDORS = [0x256f, 0x046d]; // 3Dconnexion
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 1000, minHeight: 640,
-    title: 'Forge', backgroundColor: '#f3f4f6', show: false,
+    title: 'jasCAD', backgroundColor: '#f3f4f6', show: false,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
   win.once('ready-to-show', () => { win.maximize(); win.show(); });
