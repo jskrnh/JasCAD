@@ -11,8 +11,8 @@
   <meta property="og:url" content="https://jascad.jskrnh.xyz/">
   
 <script type="module">
-import init, * as bindings from './solidcraft-web-96943b96b0a23e34.js';
-const wasm = await init({ module_or_path: (async () => { const bufs = await Promise.all(["./solidcraft-web-96943b96b0a23e34_bg.wasm.part0", "./solidcraft-web-96943b96b0a23e34_bg.wasm.part1", "./solidcraft-web-96943b96b0a23e34_bg.wasm.part2"].map((u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); }))); const out = new Uint8Array(bufs.reduce((n, b) => n + b.byteLength, 0)); let o = 0; for (const b of bufs) { out.set(new Uint8Array(b), o); o += b.byteLength; } return out; })() });
+import init, * as bindings from './solidcraft-web-39c777d624fadea7.js';
+const wasm = await init({ module_or_path: (async () => { const bufs = await Promise.all(["./solidcraft-web-39c777d624fadea7_bg.wasm.part0", "./solidcraft-web-39c777d624fadea7_bg.wasm.part1", "./solidcraft-web-39c777d624fadea7_bg.wasm.part2"].map((u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); }))); const out = new Uint8Array(bufs.reduce((n, b) => n + b.byteLength, 0)); let o = 0; for (const b of bufs) { out.set(new Uint8Array(b), o); o += b.byteLength; } return out; })() });
 
 
 window.wasmBindings = bindings;
@@ -34,7 +34,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
   
   
   
-<link rel="modulepreload" href="./solidcraft-web-96943b96b0a23e34.js" crossorigin="anonymous" integrity="sha384-0pzWmbiF2fwWcWnU0xkFVE9Dp1LDJp+COqHx5SZO2Nr7tYbEqczskww500RmSRpW"></head>
+<link rel="modulepreload" href="./solidcraft-web-39c777d624fadea7.js" crossorigin="anonymous" integrity="sha384-0pzWmbiF2fwWcWnU0xkFVE9Dp1LDJp+COqHx5SZO2Nr7tYbEqczskww500RmSRpW"></head>
 <body>
   <canvas id="solidcraft_canvas"></canvas>
   <div id="solidcraft_loading" role="status"><img src="jascad-logo.svg" alt=""><span class="sr-only">Loading jasCAD&hellip;</span></div>
