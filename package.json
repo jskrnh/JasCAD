@@ -1,0 +1,8 @@
+{
+  "name": "jascad",
+  "private": true,
+  "description": "Cloudflare build shim: the web app is built by GitHub Actions into site/ (see .github/workflows/web.yml).",
+  "scripts": {
+    "build": "test -f site/index.html && echo 'site/ is prebuilt by GitHub Actions' || (echo 'site/ missing: wait for the Build web app workflow' && exit 1)"
+  }
+}
