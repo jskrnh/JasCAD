@@ -40,6 +40,12 @@ jobs:
       - name: Build
         working-directory: apps/solidcraft-web
         run: trunk build --release --public-url ./
+      - name: Split large WebAssembly for Cloudflare (25 MiB per file)
+        run: |
+          ls -la dist/web
+          grep -o '<script type="module"[^<]*' dist/web/index.html | head -c 2000 || true
+          python3 scripts/jascad/split_wasm.py dist/web
+          cargo xtask web-offline dist/web
       - name: Check Cloudflare's 25 MiB per-file limit
         run: |
           ls -la dist/web
