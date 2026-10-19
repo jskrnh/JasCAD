@@ -30,12 +30,14 @@ jasCAD. The 3D-printing tools from v0.4.0 are not carried over for now.
 - The previous TypeScript jasCAD (v0.4.0) is kept on the `jascad-v0.4` branch.
 
 ### Known limitations
-- The web build is new. The first deploy happens after the GitHub Action finishes, which takes around 20–40 minutes.
+- The browser app needs **WebGPU**: current Chrome or Edge on desktop. On browsers that only have WebGL2 it stops at start-up with a graphics error. This is a SolidCraft limitation that jasCAD inherits.
+- The WebAssembly file is about 44 MB, more than Cloudflare's 25 MiB per-file limit, so the build splits it into three parts and the page joins them as it loads. The first load downloads about 44 MB; after that the browser serves it from its cache.
 - SolidCraft's own automated tests were written for its original look. Some UI tests that check colours or toolbar layout will need updating, and they are not run in this repo yet.
 - Print features from v0.4.0 (threads with print fit, snap-fits, lip/groove, insert bosses, split with dowels) are not in this version.
 
 ### Tested
 - Built the desktop app (release) and ran it on a software GPU. Checked the ribbon, feature tree, show / colour column (eye hides a body, swatch opens the colour picker), sketch mode and the light theme with screenshots.
+- The GitHub Action built the web app. I served it locally and opened it in headless Chrome with WebGPU: the jasCAD start page loads, and the Sample Plate opens with the ribbon and feature tree.
 
 ## v0.1.0 — Phase 1 (2026-10-17)
 
