@@ -1,5 +1,5 @@
 # Cloudflare Workers (static assets). The build runs `npm run build`; Workers serves ./dist.
-name = "forge-cad"
+name = "jascad"
 compatibility_date = "2026-10-01"
 
 [assets]

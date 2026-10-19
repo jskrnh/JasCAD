@@ -58,6 +58,7 @@ class App {
   hoverPlanePt: [number, number] | null = null;
 
   constructor() {
+    // storage keys keep the old 'forge.' prefix so work saved before the rename still loads
     const saved = localStorage.getItem('forge.project');
     this.project = saved ? safeParse(saved) || demoProject() : demoProject();
     this.partColor = (this.project as any).color || '#9fb3cc';

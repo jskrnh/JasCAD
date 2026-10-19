@@ -1,6 +1,6 @@
 {
-  "name": "forge-cad",
-  "version": "0.1.2",
+  "name": "jascad",
+  "version": "0.2.0",
   "description": "",
   "main": "index.js",
   "scripts": {

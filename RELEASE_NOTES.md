@@ -1,6 +1,6 @@
 # jasCAD — Release notes
 
-**Project website:** forge-cad on Cloudflare Workers (address confirmed after the first successful deploy)
+**Project website:** jascad on Cloudflare Workers (address confirmed after the first successful deploy)
 
 *jasCAD was called Forge before v0.2.0.*
 
@@ -69,4 +69,4 @@ The first working build of the browser CAD app. It has a real B-rep kernel, a pa
 
 ### Unchanged
 - Work already saved in the browser carries over: autosave and navigation settings are kept.
-- The GitHub repo (`jskrnh/forge-cad`) and the Cloudflare project name are unchanged, so the deploy setup keeps working. Both can be renamed later if you want.
+- **Repo and project:** the code moved to the new GitHub repo **`jskrnh/jascad`**. The Cloudflare project is now named `jascad` too (set in `wrangler.toml`). The old `forge-cad` repo is no longer used.

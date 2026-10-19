@@ -16,7 +16,7 @@ Requires Node 20+. Chrome or Edge is recommended (needed for the SpaceMouse); Fi
 
 ## Deploy (GitHub → Cloudflare Workers)
 
-The Cloudflare project `forge-cad` is connected to this repo, with these settings:
+The Cloudflare project `jascad` is connected to this repo (`jskrnh/jascad`), with these settings:
 
 | Setting | Value |
 |---|---|
