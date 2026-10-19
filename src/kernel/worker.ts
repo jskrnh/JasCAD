@@ -4,6 +4,8 @@ import opencascade from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import * as R from 'replicad';
 import { Builder } from './build';
+import { initSolver } from '../sketch/solver';
+import gcsWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
 import type { Project } from '../model/types';
 
 let builder: Builder | null = null;
@@ -11,7 +13,8 @@ let lastBodies: any[] = [];
 const ready = (async () => {
   const oc = await (opencascade as any)({ locateFile: () => wasmUrl });
   R.setOC(oc);
-  builder = new Builder(R);
+  const gcs = await initSolver(() => gcsWasmUrl);
+  builder = new Builder(R, gcs);
 })();
 
 // Queue: only the newest rebuild request matters while one is running.

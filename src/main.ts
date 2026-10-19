@@ -14,6 +14,11 @@ import { entityOutline, resolvePlane } from './kernel/build';
 import { newProject, MATERIALS } from './model/types';
 import type { Project, Feature, RebuildResult, SketchF, SketchEntity, PlaneRef, V3, HoleF, PatternF, MirrorF, ExtrudeF, RevolveF, FilletF, ChamferF, ShellF } from './model/types';
 import { demoProject } from './model/demo';
+import { SketchEditor, REL_NAME, type SkTool } from './sketch/editor';
+import { initSolver } from './sketch/solver';
+import { findRegions } from './sketch/profile';
+import gcsWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
+import type { SweepF, LoftF, DraftF, RibF, SkConstraintType } from './model/types';
 
 /* ------------------------------------------------------------------ helpers */
 const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
@@ -23,11 +28,12 @@ const fmt = (n: number, d = 2) => (Math.abs(n) < 1e-9 ? '0' : (+n.toFixed(d)).to
 const num = (n: number) => fmt(n, 2);
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 
-type Tool = 'select' | 'rect' | 'circle' | 'polygon' | 'slot' | 'poly';
+type Tool = SkTool;
 interface Edit { draft: Feature; isNew: boolean; index: number; selEntity: string | null; tool: Tool; pendingPlane?: boolean }
 type Info = 'measure' | 'mass' | 'section' | 'print' | 'vars' | null;
 
-const TYPE_LABEL: Record<string, string> = { sketch: 'Sketch', extrude: 'Extrude', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', hole: 'Hole', pattern: 'Pattern', mirror: 'Mirror' };
+const TYPE_LABEL: Record<string, string> = { sketch: 'Sketch', extrude: 'Extrude', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', hole: 'Hole', pattern: 'Pattern', mirror: 'Mirror', sweep: 'Sweep', loft: 'Loft', draft: 'Draft', rib: 'Rib' };
+const REL_ICON: Record<string, string> = { horizontal: 'rH', vertical: 'rV', coincident: 'rCoincident', pointOnCurve: 'rCoincident', tangent: 'rTangent', parallel: 'rParallel', perpendicular: 'rPerp', equal: 'rEqual', fix: 'rFix', concentric: 'rConcentric', midpoint: 'rMidpoint', symmetric: 'rSymmetric', collinear: 'rCollinear' };
 const PLANE_NAME: Record<string, string> = { XY: 'Top Plane', XZ: 'Front Plane', YZ: 'Right Plane', face: 'Face' };
 
 class App {
@@ -56,6 +62,9 @@ class App {
   drag: { start: [number, number]; cur: [number, number]; moved: boolean } | null = null;
   polyPts: [number, number][] = [];
   hoverPlanePt: [number, number] | null = null;
+  sk: SketchEditor | null = null;
+  gcs: any = null;
+  pickMode: 'neutral' | null = null;
 
   constructor() {
     // storage keys keep the old 'forge.' prefix so work saved before the rename still loads
@@ -66,6 +75,7 @@ class App {
     this.kernel.onBusy = (b) => { this.busy = b; this.renderTop(); };
     this.kernel.onResult = (r) => this.onResult(r);
     this.kernel.ready.then(() => { this.rebuild(true); });
+    initSolver(() => gcsWasmUrl).then((m) => { this.gcs = m; const ed = this.sk as SketchEditor | null; if (ed) { ed.mod = m; ed.resolve(); ed.render(); } });
     this.viewer.space.onChange = (on, name) => { this.spaceName = on ? name : ''; this.renderTop(); this.toast(on ? `${name} connected` : '3D mouse disconnected'); };
     this.viewer.space.autoConnect();
   }
@@ -91,7 +101,8 @@ class App {
     this.viewer.onCanvasDown = (e) => this.sketchDown(e);
     this.viewer.onCanvasMove = (e) => this.sketchMove(e);
     this.viewer.onCanvasUp = (e) => this.sketchUp(e);
-    this.viewer.onCameraChange = () => this.renderTriad();
+    this.viewer.onCameraChange = () => { this.renderTriad(); this.sk?.render(); };
+    this.viewer.canvas.addEventListener('dblclick', () => { if (this.sk) { this.sk.dblclick(); this.renderPanel(); } });
     this.viewer.defaultColor = this.partColor;
     this.bindKeys();
     this.renderAll();
@@ -140,7 +151,8 @@ class App {
     this.viewer.defaultColor = this.partColor;
     this.viewer.setResult(r);
     this.syncPickHighlight();
-    this.viewer.setSketches(r.sketches, this.edit?.draft.type === 'sketch' ? this.edit.draft.id : null);
+    const activeSk = this.sk && this.edit?.draft.type === 'sketch' ? this.edit.draft.id : null;
+    this.viewer.setSketches(r.sketches.filter((x) => x.featureId !== activeSk), null);
     this.updatePlanes();
     this.viewer.setModelVisible(!this.partHidden);
     if (this.section.on) this.applySection();
@@ -194,14 +206,18 @@ class App {
       Sketch: [
         { id: 'sketch', label: inSketch ? 'Exit sketch' : 'Sketch', icon: inSketch ? 'exitSketch' : 'sketch', run: () => (inSketch ? this.confirmEdit() : this.startFeature('sketch')) },
         { id: 'sep1', label: '', icon: '', sep: true },
-        { id: 'rect', label: 'Rectangle', icon: 'rect', run: tool('rect'), on: inSketch && this.edit!.tool === 'rect' },
-        { id: 'circle', label: 'Circle', icon: 'circle', run: tool('circle'), on: inSketch && this.edit!.tool === 'circle' },
-        { id: 'polygon', label: 'Polygon', icon: 'polygon', run: tool('polygon'), on: inSketch && this.edit!.tool === 'polygon' },
-        { id: 'slot', label: 'Slot', icon: 'slot', run: tool('slot'), on: inSketch && this.edit!.tool === 'slot' },
-        { id: 'poly', label: 'Polyline', icon: 'poly', run: tool('poly'), on: inSketch && this.edit!.tool === 'poly' },
+        ...([['select', 'Select', 'selectTool'], ['line', 'Line', 'line'], ['rect', 'Rectangle', 'rect'], ['circle', 'Circle', 'circle'], ['arc', 'Arc', 'arc'], ['polygon', 'Polygon', 'polygon'], ['slot', 'Slot', 'slot'], ['spline', 'Spline', 'spline'], ['point', 'Point', 'point']] as [Tool, string, string][])
+          .map(([t, l, ic]) => ({ id: t, label: l, icon: ic, run: tool(t), on: inSketch && this.sk?.tool === t })),
         { id: 'sep2', label: '', icon: '', sep: true },
-        { id: 'line', label: 'Line / Arc', icon: 'line', soon: true },
-        { id: 'dimension', label: 'Constraints', icon: 'dimension', soon: true },
+        { id: 'dim', label: 'Dimension', icon: 'dimension', run: tool('dim'), on: inSketch && this.sk?.tool === 'dim' },
+        { id: 'trim', label: 'Trim', icon: 'trim', run: tool('trim'), on: inSketch && this.sk?.tool === 'trim' },
+        { id: 'skfillet', label: 'Fillet', icon: 'skFillet', run: tool('fillet'), on: inSketch && this.sk?.tool === 'fillet' },
+        { id: 'offset', label: 'Offset', icon: 'offset', run: () => this.skOffset() },
+        { id: 'convert', label: 'Convert', icon: 'convert', run: tool('convert'), on: inSketch && this.sk?.tool === 'convert' },
+        { id: 'cons', label: 'Construction', icon: 'construction', run: () => { this.sk?.toggleConstruction(); this.renderPanel(); } },
+        { id: 'sep3', label: '', icon: '', sep: true },
+        ...(['horizontal', 'vertical', 'coincident', 'tangent'] as SkConstraintType[]).map((t) => ({ id: 'rel-' + t, label: REL_NAME[t], icon: REL_ICON[t], run: () => this.skRel(t), soon: !inSketch })),
+        { id: 'rel-more', label: 'Relations ▾', icon: 'rEqual', run: () => this.relMenu(), soon: !inSketch },
       ],
       Solids: [
         { id: 'extrude', label: 'Extrude', icon: 'extrude', run: () => this.startFeature('extrude') },
@@ -214,9 +230,10 @@ class App {
         { id: 'pattern', label: 'Linear pattern', icon: 'pattern', run: () => this.startFeature('pattern') },
         { id: 'cpattern', label: 'Circular pattern', icon: 'circPattern', run: () => this.startFeature('pattern', { mode: 'circular' }) },
         { id: 'mirror', label: 'Mirror', icon: 'mirror', run: () => this.startFeature('mirror') },
-        { id: 'sepS', label: '', icon: '', sep: true },
-        { id: 'sweep', label: 'Sweep', icon: 'sweep', soon: true },
-        { id: 'loft', label: 'Loft', icon: 'loft', soon: true },
+        { id: 'sweep', label: 'Sweep', icon: 'sweep', run: () => this.startFeature('sweep') },
+        { id: 'loft', label: 'Loft', icon: 'loft', run: () => this.startFeature('loft') },
+        { id: 'draft', label: 'Draft', icon: 'draft', run: () => this.startFeature('draft') },
+        { id: 'rib', label: 'Rib', icon: 'rib', run: () => this.startFeature('rib') },
       ],
       Surfaces: [
         { id: 's1', label: 'Extruded', icon: 'sExtruded', soon: true }, { id: 's2', label: 'Revolved', icon: 'sRevolved', soon: true },
@@ -484,11 +501,30 @@ class App {
         break;
       }
       case 'mirror': draft = { id, type, name, plane: 'YZ', features: [] } as MirrorF; break;
+      case 'sweep': {
+        const sks = this.availableSketches(); const paths = sks.filter((x) => this.sketchHasChain(x)); const profs = sks.filter((x) => !this.sketchHasChain(x) || x.entities.length);
+        if (!paths.length) return this.toast('Draw a path first: a sketch with an open line, arc or spline');
+        if (!profs.length) return this.toast('Draw a closed profile sketch first');
+        const path = paths[paths.length - 1]; const prof = [...profs].reverse().find((x) => x.id !== path.id) || profs[0];
+        draft = { id, type, name, profile: prof.id, path: path.id, op: this.result?.mesh ? 'add' : 'add', frenet: true } as SweepF; break;
+      }
+      case 'loft': {
+        const sks = this.availableSketches().filter((x) => !this.sketchHasChain(x) || x.entities.length);
+        if (sks.length < 2) return this.toast('Loft needs at least two closed profile sketches on different planes');
+        draft = { id, type, name, sketches: sks.slice(-2).map((x) => x.id), op: 'add' } as LoftF; break;
+      }
+      case 'draft': draft = { id, type, name, angle: '2', faces: this.selectedFaces().filter((f) => f.type === 'PLANE').map((f) => ({ p: f.center, n: f.normal || undefined, k: f.type })), neutral: { p: [0, 0, 0], n: [0, 0, 1] } } as DraftF; break;
+      case 'rib': {
+        const sks = this.availableSketches().filter((x) => this.sketchHasChain(x));
+        if (!sks.length) return this.toast('Draw an open line for the rib first (a sketch on a plane through the part)');
+        draft = { id, type, name, sketch: sks[sks.length - 1].id, thickness: 'wall' in this.project.variables ? 'wall' : '2' } as RibF; break;
+      }
       default: return;
     }
     this.info = null;
-    this.edit = { draft, isNew: true, index: this.insertIndex(), selEntity: null, tool: type === 'sketch' ? 'rect' : 'select', pendingPlane };
+    this.edit = { draft, isNew: true, index: this.insertIndex(), selEntity: null, tool: type === 'sketch' ? 'line' : 'select', pendingPlane };
     if (type === 'sketch') { this.tab = 'Sketch'; if (!pendingPlane) this.enterSketchView(); }
+    if (type === 'draft') this.pickMode = null;
     this.applyPickMode();
     this.syncPickHighlight();
     this.rebuild(true); this.renderAll();
@@ -507,15 +543,46 @@ class App {
 
   enterSketchView() {
     if (!this.edit || this.edit.draft.type !== 'sketch') return;
-    const P = resolvePlane(this.edit.draft.plane, new Evaluator(this.project.variables));
+    const d = this.edit.draft;
+    const P = resolvePlane(d.plane, new Evaluator(this.project.variables));
     this.viewer.normalTo(P.normal, P.xDir);
     this.viewer.setGrid(P);
+    if (!d.geo) d.geo = { points: [], curves: [], constraints: [] };
+    this.sk?.destroy();
+    const ed = new SketchEditor(this.viewer, P, d.geo, () => this.project.variables, this.gcs);
+    ed.tool = this.edit.tool;
+    ed.onChange = (re) => { this.rebuild(); if (re) { this.renderPanel(); this.renderRibbon(); } };
+    ed.onToast = (m) => this.toast(m);
+    ed.onSelect = () => { this.renderPanel(); this.renderRibbon(); };
+    this.sk = ed; ed.render();
+  }
+  availableSketches(): SketchF[] {
+    const end = this.edit && !this.edit.isNew ? this.edit.index : this.insertIndex();
+    return this.project.features.slice(0, end).filter((f) => f.type === 'sketch' && !f.suppressed) as SketchF[];
+  }
+  sketchHasChain(s: SketchF) { return !!s.geo && s.geo.curves.length > 0 && findRegions(s.geo).chains.length > 0; }
+  skRel(t: SkConstraintType) {
+    if (!this.sk) return;
+    if (!this.sk.applicable().includes(t)) return this.toast(`Select ${relHint(t)} first`);
+    this.sk.applyRel(t); this.renderPanel();
+  }
+  relMenu() {
+    const b = document.querySelector<HTMLElement>('[data-cmd="rel-more"]'); if (!b || !this.sk) return;
+    const r = b.getBoundingClientRect(); const ok = new Set(this.sk.applicable());
+    const all: SkConstraintType[] = ['horizontal', 'vertical', 'coincident', 'pointOnCurve', 'tangent', 'parallel', 'perpendicular', 'equal', 'concentric', 'midpoint', 'symmetric', 'collinear', 'fix'];
+    this.menu(all.map((t) => ({ label: REL_NAME[t] + (ok.has(t) ? '' : '  (select ' + relHint(t) + ')'), icon: REL_ICON[t], run: () => this.skRel(t) })), r.left, r.bottom + 4);
+  }
+  skOffset() {
+    if (!this.sk) return this.toast('Open a sketch first');
+    if (!this.sk.sel.size) return this.toast('Select the curves to offset, then click Offset');
+    const v = prompt('Offset distance (negative = other side)', '2'); if (v == null) return;
+    this.sk.offsetSel(v); this.renderPanel();
   }
 
   applyPickMode() {
     const d = this.edit?.draft;
-    this.viewer.pickFilter = !d ? 'any' : d.type === 'fillet' || d.type === 'chamfer' ? 'edge' : d.type === 'shell' || d.type === 'hole' ? 'face' : d.type === 'sketch' ? (this.edit!.pendingPlane ? 'face' : 'none') : 'none';
-    this.viewer.canvas.style.cursor = d?.type === 'sketch' && this.edit!.tool !== 'select' && !this.edit!.pendingPlane ? 'crosshair' : '';
+    this.viewer.pickFilter = !d ? 'any' : d.type === 'fillet' || d.type === 'chamfer' ? 'edge' : d.type === 'shell' || d.type === 'hole' || d.type === 'draft' ? 'face' : d.type === 'sketch' ? (this.edit!.pendingPlane ? 'face' : this.sk?.tool === 'convert' ? 'edge' : 'none') : 'none';
+    this.viewer.canvas.style.cursor = d?.type === 'sketch' && this.sk && this.sk.tool !== 'select' && !this.edit!.pendingPlane ? 'crosshair' : '';
   }
 
   syncPickHighlight() {
@@ -524,7 +591,7 @@ class App {
     if (d.type === 'fillet' || d.type === 'chamfer') {
       const refs = d.edges;
       this.viewer.selected = new Set(this.viewer.edges.filter((e) => refs.some((r) => dist(r.p, e.mid) < 0.05)).map((e) => 'e:' + e.id));
-    } else if (d.type === 'shell') {
+    } else if (d.type === 'shell' || d.type === 'draft') {
       this.viewer.selected = new Set(this.viewer.faces.filter((f) => d.faces.some((r) => dist(r.p, f.center) < 1e-3)).map((f) => 'f:' + f.id));
     } else this.viewer.selected = new Set();
     this.viewer.recolor();
@@ -534,14 +601,15 @@ class App {
     const e = this.edit; if (!e) return;
     const d = e.draft;
     if (d.type === 'sketch' && e.pendingPlane) return this.toast('Pick a plane or a flat face first');
-    if (d.type === 'sketch' && !d.entities.length && e.isNew) { this.cancelEdit(); return; }
-    const wasNewSketch = d.type === 'sketch' && e.isNew;
+    if (d.type === 'sketch' && !d.entities.length && !(d.geo && d.geo.curves.length) && e.isNew) { this.cancelEdit(); return; }
+    const wasNewSketch = d.type === 'sketch' && e.isNew && !!(d.entities.length || findRegions(d.geo || { points: [], curves: [], constraints: [] }).faces.length);
     this.commit(() => {
       if (e.isNew) {
         this.project.features.splice(e.index, 0, d);
         if (this.project.rollback != null) this.project.rollback = e.index + 1;
       } else this.project.features[e.index] = d;
-      if ((d.type === 'extrude' || d.type === 'revolve')) { const s = this.project.features.find((f) => f.id === d.sketch); if (s) s.hidden = true; }
+      const used = d.type === 'extrude' || d.type === 'revolve' || d.type === 'rib' ? [d.sketch] : d.type === 'sweep' ? [d.profile, d.path] : d.type === 'loft' ? d.sketches : [];
+      for (const id of used) { const s = this.project.features.find((f) => f.id === id); if (s) s.hidden = true; }
       this.edit = null;
     });
     this.exitEditView();
@@ -556,6 +624,7 @@ class App {
   }
   exitEditView(wasSketch = true) {
     this.viewer.setGrid(null); this.viewer.setOverlay([]); this.viewer.pickFilter = 'any'; this.viewer.canvas.style.cursor = '';
+    this.sk?.destroy(); this.sk = null; this.pickMode = null;
     this.viewer.selected.clear(); this.viewer.recolor();
     if (wasSketch && this.tab === 'Sketch') { this.tab = 'Solids'; }
   }
@@ -568,7 +637,7 @@ class App {
     if (rerender) this.renderPanel();
   }
 
-  toolFeatures() { return this.project.features.slice(0, this.edit && !this.edit.isNew ? this.edit.index : this.insertIndex()).filter((f) => f.type === 'extrude' || f.type === 'revolve' || f.type === 'hole' || f.type === 'pattern'); }
+  toolFeatures() { return this.project.features.slice(0, this.edit && !this.edit.isNew ? this.edit.index : this.insertIndex()).filter((f) => ['extrude', 'revolve', 'hole', 'pattern', 'sweep', 'loft', 'rib'].includes(f.type)); }
 
   /* ------------------------------------------------------------ picking */
   onPick(p: PickInfo) {
@@ -578,6 +647,14 @@ class App {
       if ((d.type === 'fillet' || d.type === 'chamfer') && p.kind === 'edge' && p.edge) {
         const i = d.edges.findIndex((r) => dist(r.p, p.edge!.mid) < 0.05);
         this.upd((x) => { if (i >= 0) x.edges.splice(i, 1); else x.edges.push({ p: p.edge!.mid, t: p.edge!.tan, k: p.edge!.type }); });
+        this.syncPickHighlight(); return;
+      }
+      if (d.type === 'sketch' && this.sk && this.sk.tool === 'convert' && p.kind === 'edge' && p.edge) { this.sk.convertEdge(p.edge); this.renderPanel(); return; }
+      if (d.type === 'draft' && p.kind === 'face' && p.face) {
+        if (p.face.type !== 'PLANE') return this.toast('Draft works on flat faces in this version');
+        if (this.pickMode === 'neutral') { this.pickMode = null; this.upd((x) => { x.neutral = { p: p.face!.center, n: p.face!.normal! }; }); return; }
+        const i = d.faces.findIndex((r) => dist(r.p, p.face!.center) < 1e-3);
+        this.upd((x) => { if (i >= 0) x.faces.splice(i, 1); else x.faces.push({ p: p.face!.center, n: p.face!.normal || undefined, k: p.face!.type }); });
         this.syncPickHighlight(); return;
       }
       if (d.type === 'shell' && p.kind === 'face' && p.face) {
@@ -622,93 +699,34 @@ class App {
   /* ------------------------------------------------------------ sketching */
   setTool(t: Tool) {
     if (!this.edit || this.edit.draft.type !== 'sketch') { this.startFeature('sketch'); if (!this.edit) return; }
-    this.edit!.tool = t; this.polyPts = []; this.drag = null; this.viewer.setOverlay([]);
+    this.edit!.tool = t; this.sk?.setTool(t);
     this.applyPickMode(); this.renderRibbon(); this.renderPanel(); this.renderExtra();
   }
   sketchPlane() {
     const d = this.edit?.draft; if (!d || d.type !== 'sketch' || this.edit!.pendingPlane) return null;
     return resolvePlane(d.plane, new Evaluator(this.project.variables));
   }
-  planePt(e: PointerEvent): [number, number] | null {
+  rawPlanePt(e: PointerEvent): [number, number] | null {
     const P = this.sketchPlane(); if (!P) return null;
-    const q = this.viewer.planePoint(e.clientX, e.clientY, P); if (!q) return null;
-    if (e.altKey) return q;
-    const step = niceStep(this.viewer.worldPerPixel() * 7);
-    return [snap(q[0], step), snap(q[1], step)];
+    return this.viewer.planePoint(e.clientX, e.clientY, P);
   }
   sketchDown(e: PointerEvent): boolean {
-    const ed = this.edit; if (!ed || ed.draft.type !== 'sketch' || ed.pendingPlane) return false;
-    const pt = this.planePt(e); if (!pt) return false;
-    if (ed.tool === 'select') {
-      // hit test entities
-      const P = this.sketchPlane()!; const ev = new Evaluator(this.project.variables);
-      const tol = this.viewer.worldPerPixel() * 8; let best: string | null = null; let bd = tol;
-      for (const en of (ed.draft as SketchF).entities) {
-        let o: [number, number][]; try { o = entityOutline(en, ev); } catch { continue; }
-        for (let i = 0; i < o.length; i++) { const dd = segDist(pt, o[i], o[(i + 1) % o.length]); if (dd < bd) { bd = dd; best = en.id; } }
-      }
-      void P; ed.selEntity = best; this.renderPanel(); return true;
-    }
-    if (ed.tool === 'poly') {
-      if (this.polyPts.length >= 3 && Math.hypot(pt[0] - this.polyPts[0][0], pt[1] - this.polyPts[0][1]) < this.viewer.worldPerPixel() * 10) { this.finishPoly(); return true; }
-      this.polyPts.push(pt); this.drawPreview(pt); return true;
-    }
-    if (this.drag && !this.drag.moved) { this.drag.cur = pt; this.finishDrag(); return true; } // second click of click-click mode
-    this.drag = { start: pt, cur: pt, moved: false };
-    return true;
+    if (!this.sk || this.edit?.pendingPlane) return false;
+    if (this.sk.tool === 'convert') return false; // falls through to model picking
+    const q = this.rawPlanePt(e); if (!q) return false;
+    const r = this.sk.down(q, e);
+    return r;
   }
   sketchMove(e: PointerEvent) {
-    const ed = this.edit; if (!ed || ed.draft.type !== 'sketch' || ed.pendingPlane || ed.tool === 'select') return;
-    const pt = this.planePt(e); if (!pt) return;
-    this.hoverPlanePt = pt;
-    if (this.drag) { this.drag.cur = pt; if (e.buttons & 1) this.drag.moved = true; }
-    this.drawPreview(pt);
-    this.renderCursorReadout(pt);
+    if (!this.sk || this.edit?.pendingPlane) return;
+    const q = this.rawPlanePt(e); if (!q) return;
+    this.sk.move(q, e);
+    const c = this.sk.cursor?.pt || q; this.renderCursorReadout(c);
   }
-  sketchUp(_e: PointerEvent) {
-    if (this.drag && this.drag.moved) this.finishDrag();
-  }
-  previewEntity(): SketchEntity | null {
-    const ed = this.edit; if (!ed || !this.drag) return null;
-    const [x0, y0] = this.drag.start, [x1, y1] = this.drag.cur;
-    const id = uid();
-    switch (ed.tool) {
-      case 'rect': return { id, kind: 'rect', cx: num((x0 + x1) / 2), cy: num((y0 + y1) / 2), w: num(Math.abs(x1 - x0)), h: num(Math.abs(y1 - y0)) };
-      case 'circle': return { id, kind: 'circle', cx: num(x0), cy: num(y0), d: num(2 * Math.hypot(x1 - x0, y1 - y0)) };
-      case 'polygon': { const r = Math.hypot(x1 - x0, y1 - y0); const a = (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI - 90; return { id, kind: 'polygon', cx: num(x0), cy: num(y0), d: num(2 * r), n: '6', angle: num(a) }; }
-      case 'slot': { const L = Math.hypot(x1 - x0, y1 - y0); const a = (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI; const w = Math.max(1, Math.min(6, L / 2)); return { id, kind: 'slot', cx: num((x0 + x1) / 2), cy: num((y0 + y1) / 2), l: num(L), w: num(w), angle: num(a) }; }
-    }
-    return null;
-  }
-  drawPreview(cursor: [number, number]) {
-    const P = this.sketchPlane(); if (!P) return;
-    const to3 = (x: number, y: number) => [P.origin[0] + P.xDir[0] * x + P.yDir[0] * y, P.origin[1] + P.xDir[1] * x + P.yDir[1] * y, P.origin[2] + P.xDir[2] * x + P.yDir[2] * y];
-    const segs: number[] = []; const pts: number[] = [...to3(...cursor)];
-    if (this.edit!.tool === 'poly' && this.polyPts.length) {
-      const all = [...this.polyPts, cursor];
-      for (let i = 0; i < all.length - 1; i++) segs.push(...to3(...all[i]), ...to3(...all[i + 1]));
-      this.polyPts.forEach((p) => pts.push(...to3(...p)));
-    } else {
-      const en = this.previewEntity();
-      if (en) { try { const o = entityOutline(en, new Evaluator({})); for (let i = 0; i < o.length; i++) segs.push(...to3(...o[i]), ...to3(...o[(i + 1) % o.length])); } catch { /* ignore */ } }
-    }
-    this.viewer.setOverlay(segs, 0xe8740c, pts);
-  }
-  finishDrag() {
-    const en = this.previewEntity(); this.drag = null; this.viewer.setOverlay([]);
-    if (!en) return;
-    const tiny = (v: string) => Math.abs(+v) < 0.2;
-    if ((en.kind === 'rect' && (tiny(en.w) || tiny(en.h))) || (en.kind === 'circle' && tiny(en.d)) || (en.kind === 'polygon' && tiny(en.d)) || (en.kind === 'slot' && tiny(en.l))) return;
-    this.upd((d: SketchF) => { d.entities.push(en); }, false);
-    this.edit!.selEntity = en.id; this.renderPanel();
-  }
-  finishPoly() {
-    if (this.polyPts.length >= 3) {
-      const en: SketchEntity = { id: uid(), kind: 'poly', pts: this.polyPts.map(([x, y]) => [num(x), num(y)] as [string, string]) };
-      this.upd((d: SketchF) => { d.entities.push(en); }, false);
-      this.edit!.selEntity = en.id;
-    }
-    this.polyPts = []; this.viewer.setOverlay([]); this.renderPanel();
+  sketchUp(e: PointerEvent) {
+    if (!this.sk) return;
+    const q = this.rawPlanePt(e); if (!q) return;
+    this.sk.up(q, e);
   }
   renderCursorReadout(pt: [number, number]) {
     const el = document.getElementById('cursorXY'); if (el) el.textContent = `X ${fmt(pt[0], 2)}  Y ${fmt(pt[1], 2)}`;
@@ -758,12 +776,67 @@ class App {
             ${this.seg('plane', [['XZ', 'Front'], ['XY', 'Top'], ['YZ', 'Right']], '')}</div>`;
           break;
         }
-        const pk = d.plane.kind;
+        const pk = d.plane.kind; const sk = this.sk;
+        const geo = d.geo || { points: [], curves: [], constraints: [] };
+        const stat = !sk ? '' : sk.status === 'conflict' ? '<div class="errbox">Over-defined: a relation or dimension conflicts. Delete the one shown in red.</div>'
+          : sk.status === 'failed' ? '<div class="errbox">The solver could not satisfy these dimensions. Undo the last change or try values closer to the current shape.</div>'
+          : !geo.curves.length ? '' : sk.dof === 0 ? '<div class="skstat ok">● Fully defined</div>' : `<div class="skstat">● Under-defined · ${sk.dof} degree${sk.dof === 1 ? '' : 's'} of freedom left</div>`;
+        const tools: [Tool, string, string][] = [['select', 'Select', 'selectTool'], ['line', 'Line', 'line'], ['rect', 'Rectangle', 'rect'], ['circle', 'Circle', 'circle'], ['arc', '3-point arc', 'arc'], ['polygon', 'Polygon', 'polygon'], ['slot', 'Slot', 'slot'], ['spline', 'Spline', 'spline'], ['point', 'Point', 'point'], ['dim', 'Dimension', 'dimension'], ['trim', 'Trim', 'trim'], ['fillet', 'Fillet', 'skFillet'], ['convert', 'Convert edge', 'convert']];
+        const selIds = sk ? [...sk.sel] : [];
+        const appl = sk ? sk.applicable() : [];
+        const dims = geo.constraints.filter((k) => k.value != null);
+        const rels = geo.constraints.filter((k) => k.value == null);
+        const selRel = selIds.length === 1 ? rels.find((k) => k.id === selIds[0]) : null;
         body = `<div class="grp"><span class="lbl">Plane</span>${pk === 'face' ? `<div class="kv"><span>On face</span><b>${fmtV(d.plane.normal!)}</b></div>` : this.seg('plane', [['XZ', 'Front'], ['XY', 'Top'], ['YZ', 'Right']], pk)}
           ${this.exprField('offset', 'Offset', d.plane.offset || '0')}</div>
-          <div class="grp"><span class="lbl">Draw</span>${this.seg('tool', [['select', 'Select'], ['rect', 'Rect'], ['circle', 'Circle'], ['polygon', 'Poly'], ['slot', 'Slot'], ['poly', 'Line']], e.tool)}
-          <div class="hint">${toolHint(e.tool)}</div></div>
-          <div class="grp"><span class="lbl">Entities (${d.entities.length})</span>${d.entities.length ? d.entities.map((en) => this.entityCard(en, en.id === e.selEntity)).join('') : '<div class="hint">Nothing drawn yet.</div>'}</div>`;
+          ${stat}
+          <div class="grp"><span class="lbl">Tools</span><div class="toolgrid">${tools.map(([t, l, ic]) => `<button data-sktool="${t}" class="${sk?.tool === t ? 'on' : ''}" title="${l}">${icon(ic, 22)}<span>${l}</span></button>`).join('')}</div>
+          <div class="hint">${toolHint(sk?.tool || 'select')}</div>
+          ${sk?.tool === 'polygon' ? `<label class="field"><span>Sides</span><input data-skopt="sides" value="${sk.polygonSides}"></label>` : ''}
+          ${sk?.tool === 'fillet' ? `<label class="field"><span>Radius</span><input data-skopt="fillet" value="${esc(sk.filletRadius)}"></label>` : ''}</div>
+          ${selRel ? `<div class="grp"><span class="lbl">Selected relation</span><div class="li on"><span>${REL_NAME[selRel.type]}</span><button class="x" data-rmk="${selRel.id}">Delete</button></div></div>` : ''}
+          ${selIds.length && !selRel ? `<div class="grp"><span class="lbl">Selection (${selIds.length})</span>
+            <div class="relgrid">${appl.map((t) => `<button data-rel="${t}" title="${REL_NAME[t]}">${icon(REL_ICON[t] || 'rFix', 18)}<span>${REL_NAME[t]}</span></button>`).join('') || '<span class="hint">No relations for this combination.</span>'}</div>
+            <div class="two"><button class="btn" data-skact="cons">${icon('construction', 16)} Construction</button><button class="btn" data-skact="del">${icon('trash', 14)} Delete</button></div>
+            <div class="two" style="grid-template-columns:1fr auto"><label class="field"><span>Offset</span><input id="offD" value="2"></label><button class="btn" data-skact="offset">${icon('offset', 16)} Offset</button></div></div>` : ''}
+          <div class="grp"><span class="lbl">Dimensions (${dims.length})</span>${dims.length ? dims.map((k) => `<div class="two" style="grid-template-columns:1fr auto">${this.exprField('dim:' + k.id, (k.type === 'radius' ? 'R' : k.type === 'diameter' ? 'Ø' : k.type === 'angle' ? '∠' : k.type === 'hdistance' ? '↔' : k.type === 'vdistance' ? '↕' : '⟷'), k.value!, k.type === 'angle' ? '°' : 'mm')}<button class="sqbtn" style="height:34px;width:30px" data-rmk="${k.id}" aria-label="Delete dimension">✕</button></div>`).join('') : '<div class="hint">Use Dimension (D) and click a line, circle or two items. Values accept variables, e.g. <code>wall*2</code>.</div>'}</div>
+          <div class="grp"><span class="lbl">Relations (${rels.length})</span>
+            <label class="chk"><input type="checkbox" data-chk="showrel" ${sk?.showRelations !== false ? 'checked' : ''}> Show relation glyphs</label>
+            ${rels.length ? `<div class="list">${rels.map((k) => `<div class="li ${selIds.includes(k.id) ? 'on' : ''}"><span>${REL_NAME[k.type]}</span><button class="x" data-rmk="${k.id}" aria-label="Delete relation">✕</button></div>`).join('')}</div>` : ''}</div>
+          ${d.entities.length ? `<div class="grp"><span class="lbl">Shape entities (${d.entities.length})</span>${d.entities.map((en) => this.entityCard(en, en.id === e.selEntity)).join('')}</div>` : ''}`;
+        break;
+      }
+      case 'sweep': {
+        const sks = this.availableSketches();
+        const opt = (cur: string, key: string, list: SketchF[]) => `<select data-sel="${key}">${list.map((x) => `<option value="${x.id}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
+        body = `<div class="grp"><span class="lbl">Profile (closed)</span><label class="field"><span>Profile</span>${opt(d.profile, 'profile', sks)}</label></div>
+          <div class="grp"><span class="lbl">Path (open chain)</span><label class="field"><span>Path</span>${opt(d.path, 'path', sks.filter((x) => this.sketchHasChain(x)))}</label>
+          <div class="hint">Draw the profile on a plane at the start of the path, roughly square to it.</div></div>
+          <div class="grp"><span class="lbl">Operation</span>${opSeg(d.op)}</div>
+          <div class="grp"><span class="lbl">Orientation</span>${this.check('frenet', 'Follow path curvature (Frenet)', d.frenet !== false)}</div>`;
+        break;
+      }
+      case 'loft': {
+        const sks = this.availableSketches();
+        body = `<div class="grp"><span class="lbl">Profiles, in order (${d.sketches.length})</span><div class="list">${sks.map((x) => `<label class="li chk"><span><input type="checkbox" data-loft="${x.id}" ${d.sketches.includes(x.id) ? 'checked' : ''}> ${esc(x.name)}</span><span class="row-meta">${d.sketches.includes(x.id) ? '#' + (d.sketches.indexOf(x.id) + 1) : ''}</span></label>`).join('')}</div>
+          <div class="hint">Tick profiles in the order the loft passes through them. Each profile should be on its own plane.</div></div>
+          <div class="grp"><span class="lbl">Operation</span>${opSeg(d.op)}</div>
+          <div class="grp">${this.check('ruled', 'Straight (ruled) sections', !!d.ruled)}</div>`;
+        break;
+      }
+      case 'draft':
+        body = `<div class="grp"><span class="lbl">Faces to draft (${d.faces.length})</span><div class="list active">${d.faces.length ? d.faces.map((r, i) => `<div class="li"><span>Face ${i + 1}</span><button class="x" data-rmface="${i}" aria-label="Remove face">✕</button></div>`).join('') : '<div class="hint" style="padding:6px">Click the side faces to taper.</div>'}</div></div>
+          <div class="grp"><span class="lbl">Angle</span>${this.exprField('angle', '∠', d.angle, '°')}</div>
+          <div class="grp"><span class="lbl">Neutral plane</span><div class="kv"><span>${d.neutral ? 'Through ' + fmtV(d.neutral.p) : 'Top plane'}</span></div>
+          <button class="btn ${this.pickMode === 'neutral' ? 'primary' : ''}" id="pickNeutral">${this.pickMode === 'neutral' ? 'Click a flat face…' : 'Pick neutral face'}</button>
+          <div class="hint">The neutral face keeps its size; drafted faces tilt about it. 1–2° helps parts release from moulds and printed sockets.</div></div>`;
+        break;
+      case 'rib': {
+        const sks = this.availableSketches().filter((x) => this.sketchHasChain(x));
+        body = `<div class="grp"><span class="lbl">Rib sketch (open line)</span><label class="field"><span>Sketch</span><select data-sel="sketch">${sks.map((x) => `<option value="${x.id}" ${x.id === d.sketch ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+          <div class="hint">Sketch a line on a plane that cuts through the part. The rib fills from the line to the walls.</div></div>
+          <div class="grp"><span class="lbl">Thickness</span>${this.exprField('thickness', 'T', d.thickness)}</div>
+          <div class="grp"><span class="lbl">Material side</span>${this.seg('ribside', [['auto', 'Automatic'], ['a', 'Side A'], ['b', 'Side B']], d.flip === undefined ? 'auto' : d.flip ? 'b' : 'a')}</div>`;
         break;
       }
       case 'extrude':
@@ -864,14 +937,30 @@ class App {
     el.querySelectorAll<HTMLElement>('[data-rment]').forEach((b) => (b.onclick = () => this.upd((d) => { d.entities = d.entities.filter((x: SketchEntity) => x.id !== b.dataset.rment); })));
     el.querySelectorAll<HTMLElement>('[data-rmpt]').forEach((b) => (b.onclick = () => this.upd((d) => d.points.splice(+b.dataset.rmpt!, 1))));
     el.querySelectorAll<HTMLInputElement>('[data-hpt]').forEach((i) => (i.onchange = () => { const [a, b] = i.dataset.hpt!.split(':').map(Number); const v = parseFloat(i.value); if (isFinite(v)) this.upd((d) => { d.points[a][b] = v; }); }));
+    el.querySelectorAll<HTMLElement>('[data-sktool]').forEach((b) => (b.onclick = () => this.setTool(b.dataset.sktool as Tool)));
+    el.querySelectorAll<HTMLElement>('[data-rel]').forEach((b) => (b.onclick = () => this.skRel(b.dataset.rel as SkConstraintType)));
+    el.querySelectorAll<HTMLElement>('[data-rmk]').forEach((b) => (b.onclick = () => { this.sk?.removeConstraint(b.dataset.rmk!); this.sk?.sel.clear(); this.renderPanel(); }));
+    el.querySelectorAll<HTMLElement>('[data-skact]').forEach((b) => (b.onclick = () => {
+      const a = b.dataset.skact; if (!this.sk) return;
+      if (a === 'cons') this.sk.toggleConstruction(); else if (a === 'del') this.sk.deleteSel();
+      else if (a === 'offset') this.sk.offsetSel(($('#offD', el) as HTMLInputElement).value || '2');
+      this.renderPanel();
+    }));
+    el.querySelectorAll<HTMLInputElement>('[data-skopt]').forEach((i) => (i.onchange = () => {
+      if (!this.sk) return;
+      if (i.dataset.skopt === 'sides') this.sk.polygonSides = Math.max(3, Math.min(64, Math.round(+i.value) || 6)); else this.sk.filletRadius = i.value || '2';
+    }));
+    el.querySelectorAll<HTMLInputElement>('[data-loft]').forEach((c) => (c.onchange = () => this.upd((d) => { const id = c.dataset.loft!; d.sketches = c.checked ? [...d.sketches.filter((x: string) => x !== id), id] : d.sketches.filter((x: string) => x !== id); })));
+    const pn = el.querySelector<HTMLElement>('#pickNeutral'); if (pn) pn.onclick = () => { this.pickMode = this.pickMode === 'neutral' ? null : 'neutral'; this.renderPanel(); };
     el.querySelectorAll<HTMLInputElement>('[data-pf]').forEach((c) => (c.onchange = () => this.upd((d) => { const id = c.dataset.pf!; d.features = c.checked ? [...new Set([...d.features, id])] : d.features.filter((x: string) => x !== id); })));
   }
 
   setExpr(key: string, v: string) {
     const ed = this.edit!; const d: any = ed.draft;
-    if (key.startsWith('en:')) { const [, id, k] = key.split(':'); const en = d.entities.find((x: any) => x.id === id); if (en) en[k] = v; }
+    if (key.startsWith('dim:')) { const k = d.geo?.constraints.find((x: any) => x.id === key.slice(4)); if (k) { const old = k.value; k.value = v; this.sk?.resolve(); if (this.sk && (this.sk.status === 'conflict' || this.sk.status === 'failed')) { k.value = old; this.sk.resolve(); } this.sk?.render(); } }
+    else if (key.startsWith('en:')) { const [, id, k] = key.split(':'); const en = d.entities.find((x: any) => x.id === id); if (en) en[k] = v; }
     else if (key.startsWith('pp:')) { const [, id, i, j] = key.split(':'); const en = d.entities.find((x: any) => x.id === id); if (en) en.pts[+i][+j] = v; }
-    else if (key === 'offset') d.plane.offset = v;
+    else if (key === 'offset') { d.plane.offset = v; if (this.sk) { this.sk.plane = resolvePlane(d.plane, new Evaluator(this.project.variables)); this.viewer.setGrid(this.sk.plane); this.sk.render(); } }
     else if (key === 'cbd') d.cbore.d = v;
     else if (key === 'cbh') d.cbore.depth = v;
     else { d[key] = v; if (d.type === 'hole' && key === 'diameter') d.preset = 'custom'; }
@@ -887,6 +976,7 @@ class App {
         case 'end': d.throughAll = v === 'through'; d.symmetric = v === 'mid'; break;
         case 'hend': d.throughAll = v === 'through'; break;
         case 'axis': d.axis = v; break;
+        case 'ribside': d.flip = v === 'auto' ? undefined : v === 'b'; break;
         case 'sdir': d.outward = v === 'out'; break;
         case 'mode': d.mode = v; break;
         case 'dir': d.dir = v; break;
@@ -896,7 +986,7 @@ class App {
         case 'tool': ed.tool = v as Tool; this.polyPts = []; this.drag = null; this.viewer.setOverlay([]); this.applyPickMode(); this.renderRibbon(); break;
         case 'plane':
           d.plane = { kind: v, offset: d.plane?.offset || '0' }; ed.pendingPlane = false;
-          setTimeout(() => { this.applyPickMode(); this.enterSketchView(); this.renderRibbon(); });
+          setTimeout(() => { this.applyPickMode(); this.enterSketchView(); this.renderRibbon(); this.renderPanel(); });
           break;
         case 'preset': {
           d.preset = v; const hv = holeValues(v, d.size, true);
@@ -909,12 +999,17 @@ class App {
   setChk(key: string, on: boolean) {
     this.upd((d) => {
       if (key === 'reverse') d.reverse = on;
+      if (key === 'frenet') d.frenet = on;
+      if (key === 'ruled') d.ruled = on;
+      if (key === 'showrel' && this.sk) { this.sk.showRelations = on; this.sk.render(); }
       if (key === 'cbore') { const hv = holeValues('clearance', d.size, true)!; d.cbore = on ? hv.cbore : null; }
     });
   }
   setSel(key: string, v: string) {
     this.upd((d) => {
       if (key === 'sketch') d.sketch = v;
+      if (key === 'profile') d.profile = v;
+      if (key === 'path') d.path = v;
       if (key === 'size') { d.size = v; const hv = holeValues(d.preset, v, !!d.cbore); if (hv) { d.diameter = hv.diameter; d.depth = hv.depth; d.throughAll = hv.throughAll; d.cbore = d.cbore ? hv.cbore : null; } }
     });
   }
@@ -1291,18 +1386,19 @@ class App {
         return;
       }
       if (ctrl) return;
+      if (this.sk && this.sk.key(e)) { e.preventDefault(); this.renderPanel(); this.renderRibbon(); return; }
       if (e.key === 'Escape') {
         if (this.drag || this.polyPts.length) { this.drag = null; this.polyPts = []; this.viewer.setOverlay([]); return; }
         if (this.edit) return this.cancelEdit();
         this.viewer.clearSelection(); this.treeSel = null; this.renderSide(); return;
       }
-      if (e.key === 'Enter') { if (this.edit?.tool === 'poly' && this.polyPts.length) return this.finishPoly(); if (this.edit) this.confirmEdit(); return; }
+      if (e.key === 'Enter') { if (this.edit) this.confirmEdit(); return; }
       if (e.key === 'f' || e.key === 'F' || e.key === 'Home') { this.viewer.fit(); return; }
       if (e.key === 's' || e.key === 'S') { e.preventDefault(); this.openSearch(); return; }
       if (e.key === ' ') { e.preventDefault(); this.viewsMenu($('#hViews')); return; }
       if (e.key === 'F2' && this.treeSel) { this.rename(this.treeSel); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (this.edit?.draft.type === 'sketch' && this.edit.selEntity) { const id = this.edit.selEntity; this.edit.selEntity = null; this.upd((d) => { d.entities = d.entities.filter((x: SketchEntity) => x.id !== id); }); return; }
+        if (this.edit?.draft.type === 'sketch' && this.edit.selEntity && !this.sk?.sel.size) { const id = this.edit.selEntity; this.edit.selEntity = null; this.upd((d) => { d.entities = d.entities.filter((x: SketchEntity) => x.id !== id); }); return; }
         if (!this.edit && this.treeSel && this.project.features.some((f) => f.id === this.treeSel)) this.deleteFeature(this.treeSel);
       }
     });
@@ -1329,7 +1425,17 @@ function segDist(p: [number, number], a: [number, number], b: [number, number]) 
   return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
 }
 function toolHint(t: Tool) {
-  return ({ select: 'Click an entity to select it. Delete removes it.', rect: 'Drag corner to corner (or click twice).', circle: 'Drag from centre to radius.', polygon: 'Drag from centre to a corner. 6 sides by default.', slot: 'Drag from one end to the other.', poly: 'Click points; click the first point or press Enter to close.' } as Record<string, string>)[t] + ' Hold Alt to turn off snapping.';
+  return ({
+    select: 'Click to select points, curves or relations. Drag points to reshape. Shift-click adds to the selection.',
+    line: 'Click points to draw connected lines. Click the start point to close, Esc to stop. Near-horizontal and vertical lines snap and get a relation.',
+    rect: 'Click two opposite corners.', circle: 'Click the centre, then a point on the circle.', arc: 'Click the start, the end, then a point on the arc.',
+    polygon: 'Click the centre, then a corner.', slot: 'Click the two end centres, then the width.', spline: 'Click points along the curve. Enter or double-click finishes.',
+    point: 'Click to place a point (useful for hole centres and constraints).', dim: 'Click a line, circle or arc, or two items, then click where the dimension goes. Type a value or expression.',
+    trim: 'Click the part of a curve to remove (between intersections).', fillet: 'Click a corner where two lines meet.', convert: 'Click model edges to project them into the sketch (fixed).',
+  } as Record<string, string>)[t] + ' Hold Alt to turn off snapping.';
+}
+function relHint(t: SkConstraintType) {
+  return ({ horizontal: 'a line or two points', vertical: 'a line or two points', coincident: 'two points', tangent: 'a line and an arc/circle, or two arcs', parallel: 'two lines', perpendicular: 'two lines', equal: 'two lines or two arcs/circles', fix: 'points or curves' } as Record<string, string>)[t] || 'the right items';
 }
 function featureMeta(f: Feature, p: Project): string {
   const ev = new Evaluator(p.variables);
@@ -1342,7 +1448,10 @@ function featureMeta(f: Feature, p: Project): string {
     case 'shell': return v(f.thickness);
     case 'hole': return f.preset === 'custom' ? 'Ø' + v(f.diameter) : `${f.size}${f.preset === 'insert' ? ' ins' : ''}`;
     case 'pattern': return '×' + v(f.count);
-    case 'sketch': return f.entities.length ? '✓' : '';
+    case 'sketch': return f.entities.length || f.geo?.curves.length ? '✓' : '';
+    case 'loft': return '×' + f.sketches.length;
+    case 'draft': return v(f.angle) + '°';
+    case 'rib': return v(f.thickness);
     default: return '';
   }
 }

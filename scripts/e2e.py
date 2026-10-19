@@ -9,7 +9,7 @@ with sync_playwright() as p:
     pg = ctx.new_page(); logs=[]
     pg.on('console', lambda m: logs.append(f'{m.type}: {m.text}') if m.type in ('error','warning') else None)
     pg.on('pageerror', lambda e: logs.append(f'PAGEERROR: {e}'))
-    pg.goto('http://localhost:5173/')
+    pg.goto('http://localhost:5174/')
     pg.wait_for_function("document.querySelector('#status') && /Rebuilt|error/.test(document.querySelector('#status').textContent)", timeout=60000)
     pg.screenshot(path='/tmp/e0.png')
     # new part

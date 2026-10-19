@@ -70,3 +70,34 @@ The first working build of the browser CAD app. It has a real B-rep kernel, a pa
 ### Unchanged
 - Work already saved in the browser carries over: autosave and navigation settings are kept.
 - **Repo and project:** the code moved to the new GitHub repo **`jskrnh/jascad`**. The Cloudflare project is now named `jascad` too (set in `wrangler.toml`). The old `forge-cad` repo is no longer used.
+
+## v0.3.0 — Constraint sketcher, sweep, loft, draft, rib (2026-10-19)
+
+### New
+- **Constraint sketcher** (FreeCAD's PlaneGCS solver, running in the browser):
+  - **Drawing tools:** line chains, rectangle, circle, 3-point arc, polygon, slot, spline and point. Drawing works by click-click or click-drag.
+  - **Auto-relations while drawing:** snaps to existing points and curves, and adds horizontal or vertical relations when a line is drawn close to level.
+  - **Relations:** coincident, on-curve, horizontal, vertical, parallel, perpendicular, tangent (endpoint tangency, FreeCAD style), equal, concentric, midpoint, symmetric, collinear and fix. Relation glyphs show on the canvas.
+  - **Smart dimensions:** length, distance, horizontal and vertical distance, diameter, radius and angle. You edit them inline on the canvas, and they accept variables and expressions (`wall*2`).
+  - **Defined status:** geometry turns black and the panel says "Fully defined" when nothing can move. Otherwise the panel shows how many degrees of freedom are left. Conflicting relations turn red, and anything that would over-define the sketch is refused.
+  - **Editing tools:** trim, sketch fillet, offset, construction geometry, convert model edges into the sketch, drag points, and delete.
+  - **Profiles:** closed regions are found automatically. Lines that split a loop are handled, and inner loops become holes. Open chains can be used as sweep paths and ribs.
+  - **Variable-driven rebuilds:** sketches re-solve whenever a variable changes, so dimensions driven by variables update the part.
+- **Sweep:** a closed profile along an open path of lines, arcs and splines (boss, cut or new body).
+- **Loft:** blends between two or more profiles, smooth or straight.
+- **Draft:** tapers selected faces about a neutral face by an angle.
+- **Rib:** an open sketch line becomes a wall that fills to the part. It automatically picks the side that faces into the corner, and you can flip it.
+
+### Changed
+- The Sketch ribbon now holds the full toolset, plus a Relations menu.
+- Older shape-based sketches (rectangle, circle, slot entities) still open and stay editable.
+
+### Known limitations
+- Draft supports flat faces only.
+- Sweep orients the profile where you drew it. Draw it at the start of the path, roughly square to it.
+- A rib fills up to the part's bounding box. This works for brackets and enclosures, but it can overshoot on strongly curved outer walls.
+
+### Tested
+- Node kernel tests for each new feature. Volumes match hand calculations: a variable-driven rectangle, the sweep (π·r²·path length), the gusset rib, a split-region sketch and a sketch with a hole.
+- Browser tests of every sketch tool, dimension editing, the fully-defined state, sweep, loft and rib through the UI.
+- Both earlier regression suites still pass unchanged.

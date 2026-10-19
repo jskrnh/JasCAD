@@ -34,7 +34,22 @@ interface Base {
   color?: string;
 }
 
-export interface SketchF extends Base { type: 'sketch'; plane: PlaneRef; entities: SketchEntity[] }
+/* ---------- Constraint sketch geometry ---------- */
+export interface SkPoint { id: string; x: number; y: number }
+export type SkCurve =
+  | { id: string; kind: 'line'; a: string; b: string; cons?: boolean }
+  | { id: string; kind: 'circle'; c: string; r: number; cons?: boolean }
+  | { id: string; kind: 'arc'; c: string; a: string; b: string; cons?: boolean }     // counter-clockwise a → b
+  | { id: string; kind: 'spline'; pts: string[]; cons?: boolean };                  // interpolates its points
+export type SkConstraintType =
+  | 'coincident' | 'pointOnCurve' | 'horizontal' | 'vertical' | 'parallel' | 'perpendicular' | 'tangent'
+  | 'equal' | 'concentric' | 'midpoint' | 'symmetric' | 'collinear' | 'fix'
+  | 'distance' | 'hdistance' | 'vdistance' | 'radius' | 'diameter' | 'angle';
+export interface SkConstraint { id: string; type: SkConstraintType; refs: string[]; value?: Expr; pos?: [number, number] }
+export interface SketchGeo { points: SkPoint[]; curves: SkCurve[]; constraints: SkConstraint[] }
+export const ORIGIN_ID = 'O';
+
+export interface SketchF extends Base { type: 'sketch'; plane: PlaneRef; entities: SketchEntity[]; geo?: SketchGeo }
 export interface ExtrudeF extends Base {
   type: 'extrude'; sketch: string; depth: Expr; reverse?: boolean; symmetric?: boolean;
   throughAll?: boolean; draft?: Expr; op: Op;
@@ -59,7 +74,12 @@ export interface PatternF extends Base {
 }
 export interface MirrorF extends Base { type: 'mirror'; plane: 'XY' | 'XZ' | 'YZ'; features: string[] /* empty = whole body */ }
 
-export type Feature = SketchF | ExtrudeF | RevolveF | FilletF | ChamferF | ShellF | HoleF | PatternF | MirrorF;
+export interface SweepF extends Base { type: 'sweep'; profile: string; path: string; op: Op; frenet?: boolean }
+export interface LoftF extends Base { type: 'loft'; sketches: string[]; ruled?: boolean; op: Op }
+export interface DraftF extends Base { type: 'draft'; angle: Expr; faces: FaceRef[]; neutral: FaceRef | null; pull?: 'z' | 'neutral' }
+export interface RibF extends Base { type: 'rib'; sketch: string; thickness: Expr; flip?: boolean }
+
+export type Feature = SketchF | ExtrudeF | RevolveF | FilletF | ChamferF | ShellF | HoleF | PatternF | MirrorF | SweepF | LoftF | DraftF | RibF;
 export type FeatureType = Feature['type'];
 
 export interface Material { name: string; density: number /* g/cm3 */; pricePerKg: number }
@@ -100,8 +120,8 @@ export interface FaceInfo {
   id: number; owner: string | null; type: string; area: number;
   center: V3; normal: V3 | null; xDir: V3 | null;
 }
-export interface EdgeInfo { id: number; owner: string | null; type: string; length: number; mid: V3; tan: V3 }
-export interface SketchDisplay { featureId: string; lines: number[]; origin: V3; xDir: V3; normal: V3 }
+export interface EdgeInfo { id: number; owner: string | null; type: string; length: number; mid: V3; tan: V3; pts?: V3[] /* start, 1/4, mid, end */ }
+export interface SketchDisplay { featureId: string; lines: number[]; consLines?: number[]; origin: V3; xDir: V3; normal: V3; dof?: number; status?: 'ok' | 'conflict' | 'redundant' | 'failed' }
 export interface RebuildResult {
   ok: boolean;
   mesh: { vertices: Float32Array; normals: Float32Array; triangles: Uint32Array; faceGroups: { start: number; count: number; faceId: number }[] } | null;

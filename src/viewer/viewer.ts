@@ -324,6 +324,34 @@ export class Viewer {
     this.dirty = true;
   }
 
+  private layerGroup = new THREE.Group();
+  /** Multi-colour overlay for the interactive sketcher (drawn on top of the model). */
+  setOverlayLayers(layers: { pos: number[]; color: number; width: number; dashed?: boolean }[], pts: { pos: number[]; color: number; size: number }[] = []) {
+    if (!this.layerGroup.parent) this.scene.add(this.layerGroup);
+    for (const c of this.layerGroup.children) { (c as any).geometry?.dispose?.(); }
+    this.layerGroup.clear();
+    for (const L of layers) {
+      if (!L.pos.length) continue;
+      const g = new LineSegmentsGeometry(); g.setPositions(L.pos);
+      const m = this.lineMat(L.color, L.width, { depthTest: false, dashed: !!L.dashed });
+      if (L.dashed) { m.dashSize = this.worldPerPixel() * 6; m.gapSize = this.worldPerPixel() * 4; }
+      const l = new LineSegments2(g, m); if (L.dashed) l.computeLineDistances();
+      l.renderOrder = 12; this.layerGroup.add(l);
+    }
+    for (const P of pts) {
+      if (!P.pos.length) continue;
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P.pos, 3));
+      const pm = new THREE.Points(g, new THREE.PointsMaterial({ color: P.color, size: P.size, sizeAttenuation: false, depthTest: false }));
+      pm.renderOrder = 13; this.layerGroup.add(pm);
+    }
+    this.dirty = true;
+  }
+  /** World point → client (CSS pixel) coordinates. */
+  project(p: V3): [number, number] {
+    const v = new THREE.Vector3(...p).project(this.cam); const r = this.canvas.getBoundingClientRect();
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  }
+
   setGrid(plane: { origin: V3; xDir: V3; normal: V3 } | null, extent = 200, step = 5) {
     this.overlay.children.filter((c) => c.userData.grid).forEach((c) => this.overlay.remove(c));
     if (!plane) { this.dirty = true; return; }

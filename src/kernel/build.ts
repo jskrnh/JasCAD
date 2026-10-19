@@ -2,6 +2,8 @@
 // Pure module: used by the web worker in the app and directly by the Node test suite.
 import type * as RT from 'replicad';
 import { Evaluator } from '../model/expr';
+import { solve as solveSketch } from '../sketch/solver';
+import { findRegions, faceArea, facePolygon, sampleSeg, splineBeziers, curveSeg, pointMap, type Seg, type P2 } from '../sketch/profile';
 import type {
   Project, Feature, PlaneRef, SketchEntity, RebuildResult, FaceInfo, EdgeInfo, SketchDisplay, V3, Op, EdgeRef, FaceRef,
 } from '../model/types';
@@ -10,11 +12,15 @@ type R = typeof RT;
 type Shape = RT.Shape3D;
 
 interface PlaneData { origin: V3; xDir: V3; normal: V3; yDir: V3 }
+interface SketchData {
+  drawing: RT.Drawing | null; plane: PlaneData; chains: Seg[][]; faces: Seg[][];
+  geo?: import('../model/types').SketchGeo; dof?: number; status?: 'ok' | 'conflict' | 'redundant' | 'failed';
+}
 interface Snapshot {
   key: string;
   bodies: Shape[];
   tools: Map<string, { tool: Shape; op: Op }>;
-  sketches: Map<string, { drawing: RT.Drawing | null; plane: PlaneData }>;
+  sketches: Map<string, SketchData>;
   faceOwner: Map<number, string>;
   edgeOwner: Map<number, string>;
   error?: string;
@@ -188,7 +194,8 @@ const keyOf = (prev: string, f: Feature, i: number) => {
 export class Builder {
   private cache: Snapshot[] = [];
   private varsKey = '';
-  constructor(private R: R) {}
+  private vars: Record<string, string> = {};
+  constructor(private R: R, private gcs: any = null) {}
 
   private emptySnap(): Snapshot {
     return { key: 'root', bodies: [], tools: new Map(), sketches: new Map(), faceOwner: new Map(), edgeOwner: new Map() };
@@ -199,6 +206,7 @@ export class Builder {
     const t0 = Date.now();
     const R = this.R;
     const ev = new Evaluator(project.variables);
+    this.vars = project.variables;
     const vk = JSON.stringify(project.variables);
     if (vk !== this.varsKey) { this.cache = []; this.varsKey = vk; }
 
@@ -256,7 +264,16 @@ export class Builder {
         lines.push(...a, ...b);
       }
     }
-    out.push({ featureId: f.id, lines, origin: P.origin, xDir: P.xDir, normal: P.normal });
+    const consLines: number[] = [];
+    if (s.geo) {
+      const PM = pointMap(s.geo);
+      for (const c of s.geo.curves) {
+        const sg = curveSeg(c, PM); if (!sg) continue;
+        const pts = sampleSeg(sg, 48); const arr = c.cons ? consLines : lines;
+        for (let k = 0; k < pts.length - 1; k++) arr.push(...to3(...pts[k]), ...to3(...pts[k + 1]));
+      }
+    }
+    out.push({ featureId: f.id, lines, consLines, origin: P.origin, xDir: P.xDir, normal: P.normal, dof: s.dof, status: s.status });
   }
 
   private applyOp(s: Snapshot, solid: Shape, op: Op) {
@@ -274,8 +291,93 @@ export class Builder {
     switch (f.type) {
       case 'sketch': {
         const plane = resolvePlane(f.plane, ev);
-        const drawing = f.entities.length ? sketchDrawing(R, f.entities, ev) : null;
-        s.sketches.set(f.id, { drawing, plane });
+        let drawing = f.entities.length ? sketchDrawing(R, f.entities, ev) : null;
+        let faces: Seg[][] = [], chains: Seg[][] = [], geo = f.geo, dof: number | undefined, status: SketchData['status'];
+        if (f.geo && f.geo.curves.length) {
+          if (this.gcs) { const res = solveSketch(this.gcs, f.geo, this.vars); geo = res.geo; dof = res.dof; status = res.status; }
+          const reg = findRegions(geo!); faces = reg.faces; chains = reg.chains;
+          const gd = regionsDrawing(R, faces);
+          if (gd) drawing = drawing ? drawing.fuse(gd) : gd;
+        }
+        s.sketches.set(f.id, { drawing, plane, faces, chains, geo, dof, status });
+        if (status === 'conflict') throw new Error('Sketch has conflicting constraints — remove one of the highlighted constraints');
+        return;
+      }
+      case 'sweep': {
+        const prof = s.sketches.get(f.profile), path = s.sketches.get(f.path);
+        if (!prof || !prof.drawing) throw new Error('Pick a closed profile sketch');
+        if (!path || !path.chains.length) throw new Error('Pick a path sketch with an open line, arc or spline chain');
+        const spine = chainWire(R, path.chains[0], path.plane);
+        const wires = drawingWires(R, prof.drawing, prof.plane);
+        let solid: Shape | null = null;
+        for (const [i, w] of wires.entries()) {
+          const sw = R.genericSweep(w, spine, { frenet: f.frenet ?? true, transitionMode: 'right' } as any, false) as Shape;
+          solid = !solid ? sw : i === 0 ? sw : (solid.cut(sw) as Shape);
+        }
+        if (!solid) throw new Error('Profile is empty');
+        s.tools.set(f.id, { tool: solid, op: f.op });
+        this.applyOp(s, solid, f.op);
+        return;
+      }
+      case 'loft': {
+        if (f.sketches.length < 2) throw new Error('Pick at least two profile sketches');
+        const wires = f.sketches.map((id) => {
+          const sk = s.sketches.get(id); if (!sk || !sk.drawing) throw new Error('A loft profile is missing or empty');
+          return drawingWires(R, sk.drawing, sk.plane)[0];
+        });
+        const solid = R.loft(wires, { ruled: !!f.ruled }) as Shape;
+        s.tools.set(f.id, { tool: solid, op: f.op });
+        this.applyOp(s, solid, f.op);
+        return;
+      }
+      case 'draft': {
+        if (!f.faces.length) throw new Error('Select faces to draft');
+        const ang = ev.eval(f.angle);
+        if (Math.abs(ang) < 1e-6) return;
+        let found = 0;
+        s.bodies = s.bodies.map((b) => {
+          const pts = resolveFaces(R, b, f.faces); if (!pts.length) return b; found += pts.length;
+          let neutral: RT.Plane;
+          if (f.neutral && f.neutral.n) neutral = new R.Plane(f.neutral.p, perp(f.neutral.n), f.neutral.n);
+          else neutral = new R.Plane([0, 0, 0], [1, 0, 0], [0, 0, 1]);
+          return (b as any).draft(ang, (x: RT.FaceFinder) => x.either(pts.map((p) => (g: RT.FaceFinder) => g.atDistance(0, p, 0.25))), neutral) as Shape;
+        });
+        if (!found) throw new Error('Face references lost — reselect faces');
+        return;
+      }
+      case 'rib': {
+        const sk = s.sketches.get(f.sketch);
+        if (!sk || !sk.chains.length) throw new Error('Draw an open line (or chain) in the rib sketch');
+        if (!s.bodies.length) throw new Error('Ribs need an existing body');
+        const t = ev.eval(f.thickness); if (t <= 0) throw new Error('Thickness must be > 0');
+        const P = sk.plane;
+        const bb = (s.bodies.length === 1 ? s.bodies[0] : (R.makeCompound(s.bodies) as any)).boundingBox.bounds as [V3, V3];
+        const box = R.makeBox(bb[0], bb[1]) as Shape;
+        const build = (flip: boolean) => {
+          let rib: Shape | null = null;
+          for (const ch of sk.chains) {
+            const pts = ch.flatMap((sg, i) => sampleSeg(sg, 16).slice(i ? 1 : 0));
+            const a = pts[0], b = pts[pts.length - 1];
+            const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1;
+            let nx = -dy / L, ny = dx / L; if (flip) { nx = -nx; ny = -ny; }
+            const D = 4000;
+            const poly: P2[] = [...pts, [b[0] + nx * D, b[1] + ny * D], [a[0] + nx * D, a[1] + ny * D]];
+            let pen = R.draw(poly[0]); for (let i = 1; i < poly.length; i++) pen = pen.lineTo(poly[i]);
+            const pl = new R.Plane(add(P.origin, mul(P.normal, -t / 2)), P.xDir, P.normal);
+            const slab = (pen.close().sketchOnPlane(pl) as any).extrude(t) as Shape;
+            rib = rib ? (rib.fuse(slab) as Shape) : slab;
+          }
+          return rib!.intersect(box) as Shape;
+        };
+        let clipped: Shape;
+        if (f.flip === undefined) {
+          // automatic side: the one that adds less material (the side facing into the corner/enclosure)
+          const a = build(false), b = build(true);
+          const va = R.measureVolume(a), vb = R.measureVolume(b);
+          clipped = va <= vb ? a : b;
+        } else clipped = build(!!f.flip);
+        s.tools.set(f.id, { tool: clipped, op: 'add' });
+        this.applyOp(s, clipped, 'add');
         return;
       }
       case 'extrude': {
@@ -450,7 +552,8 @@ export class Builder {
         const p = ed.pointAt(0.5);
         let length = 0; try { length = ed.length; } catch { /* ignore */ }
         let tan: V3 = [0, 0, 0]; try { const t = ed.tangentAt(0.5); tan = norm([t.x, t.y, t.z]); } catch { /* ignore */ }
-        res.edgeInfo.push({ id: ed.hashCode, owner: s.edgeOwner.get(ed.hashCode) ?? null, type: String(ed.geomType), length, mid: [p.x, p.y, p.z], tan });
+        const q0 = ed.pointAt(0), q1 = ed.pointAt(1), qa = ed.pointAt(0.25);
+        res.edgeInfo.push({ id: ed.hashCode, owner: s.edgeOwner.get(ed.hashCode) ?? null, type: String(ed.geomType), length, mid: [p.x, p.y, p.z], tan, pts: [[q0.x, q0.y, q0.z], [qa.x, qa.y, qa.z], [p.x, p.y, p.z], [q1.x, q1.y, q1.z]] });
       }
     }
     res.mesh = { vertices: new Float32Array(V), normals: new Float32Array(N), triangles: new Uint32Array(T), faceGroups: FG };
@@ -475,6 +578,67 @@ export class Builder {
     const comp = bodies.length === 1 ? bodies[0] : (this.R.makeCompound(bodies) as any);
     return comp.blobSTL({ binary: true, tolerance: fine ? 0.01 : 0.05, angularTolerance: fine ? 0.08 : 0.2 });
   }
+}
+
+function perp(n: V3): V3 { return norm(Math.abs(n[2]) < 0.9 ? cross([0, 0, 1], n) : cross(n, [0, 1, 0])); }
+
+function segsDrawing(R: R, segs: Seg[]): RT.Drawing {
+  if (segs.length === 1 && segs[0].kind === 'circle') return R.drawCircle(segs[0].r).translate(segs[0].c[0], segs[0].c[1]);
+  let pen = R.draw(segs[0].from);
+  for (const sg of segs) {
+    if (sg.kind === 'line') pen = pen.lineTo(sg.to);
+    else if (sg.kind === 'arc') { const pts = sampleSeg(sg, 8); pen = pen.threePointsArcTo(sg.to, pts[4]); }
+    else if (sg.kind === 'spline') { for (const b of splineBeziers(sg.pts)) pen = pen.cubicBezierCurveTo(b.end, b.c1, b.c2); }
+  }
+  return pen.close();
+}
+function insidePoly(pt: P2, poly: P2[]) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+/** Fuse regions; a region lying inside a larger, non-adjacent region becomes a hole (alternating for islands). */
+function regionsDrawing(R: R, faces: Seg[][]): RT.Drawing | null {
+  const items = faces.map((f) => {
+    const poly = facePolygon(f);
+    const a = poly[0], b = poly[1] || poly[0];
+    const probe: P2 = [(a[0] + b[0]) / 2 - (b[1] - a[1]) * 1e-4, (a[1] + b[1]) / 2 + (b[0] - a[0]) * 1e-4];
+    return { f, poly, area: Math.abs(faceArea(f)), probe, srcs: new Set(f.map((s) => s.src)) };
+  }).sort((x, y) => y.area - x.area);
+  let out: RT.Drawing | null = null;
+  const placed: typeof items = [];
+  for (const it of items) {
+    const depth = placed.filter((p) => ![...it.srcs].some((s) => p.srcs.has(s)) && insidePoly(it.probe, p.poly)).length;
+    const d = segsDrawing(R, it.f);
+    out = !out ? d : depth % 2 ? out.cut(d) : out.fuse(d);
+    placed.push(it);
+  }
+  return out;
+}
+function to3D(P: PlaneData, p: P2): V3 { return add(add(P.origin, mul(P.xDir, p[0])), mul(P.yDir, p[1])); }
+/** An open chain as a 3D wire (sweep path). */
+function chainWire(R: R, chain: Seg[], P: PlaneData): any {
+  const edges: any[] = [];
+  for (const sg of chain) {
+    if (sg.kind === 'line') edges.push(R.makeLine(to3D(P, sg.from), to3D(P, sg.to)));
+    else if (sg.kind === 'arc') { const m = sampleSeg(sg, 8)[4]; edges.push(R.makeThreePointArc(to3D(P, sg.from), to3D(P, m), to3D(P, sg.to))); }
+    else if (sg.kind === 'spline') {
+      let prev = sg.pts[0];
+      for (const b of splineBeziers(sg.pts)) { edges.push(R.makeBezierCurve([to3D(P, prev), to3D(P, b.c1), to3D(P, b.c2), to3D(P, b.end)])); prev = b.end; }
+    }
+  }
+  return R.assembleWire(edges);
+}
+/** Closed wires of a sketch drawing placed in 3D (outer first). */
+function drawingWires(R: R, d: RT.Drawing, P: PlaneData): any[] {
+  const sk: any = d.sketchOnPlane(new R.Plane(P.origin, P.xDir, P.normal));
+  const list = sk.sketches ? sk.sketches : [sk];
+  const wires: any[] = [];
+  for (const one of list) { if (one.wire) wires.push(one.wire); }
+  return wires;
 }
 
 function mergeTools(list: { tool: Shape; op: Op }[]) {

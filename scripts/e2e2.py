@@ -8,7 +8,7 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={'width':1440,'height':900}); logs=[]
     pg.on('pageerror', lambda e: logs.append(f'PAGEERROR: {e}'))
     pg.on('console', lambda m: logs.append(f'{m.type}: {m.text}') if m.type=='error' and 'ERR_TUNNEL' not in m.text else None)
-    pg.goto('http://localhost:5173/')
+    pg.goto('http://localhost:5174/')
     pg.wait_for_function("document.querySelector('#status') && /Rebuilt|error/.test(document.querySelector('#status').textContent)", timeout=60000); time.sleep(1); time.sleep(0.5)
     # sketch on the front face of upright: find planar face with normal -Y near y=14
     face = pg.evaluate("""() => { const v=window.__app.viewer; const f=v.faces.find(f=>f.normal && f.normal[1]<-0.99 && Math.abs(f.center[1]-14)<0.01); const p=new v.cam.position.constructor(...f.center).project(v.cam); const r=v.canvas.getBoundingClientRect(); return [r.left+(p.x+1)/2*r.width, r.top+(1-p.y)/2*r.height+40]; }""")

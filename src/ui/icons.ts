@@ -28,7 +28,17 @@ const I: Record<string, Layer[]> = {
   // sketch
   line: sk('M4 20L20 4'), rect: sk('M4 6h16v12H4z'), circle: sk('M12 4a8 8 0 1 0 .01 0'), polygon: sk('M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z'),
   slot: sk('M8 8h8a4 4 0 0 1 0 8H8a4 4 0 0 1 0-8z'), poly: sk('M4 18L8 6l7 4 5-4v12z'), sketch: sk('M4 6h16v12H4zM4 6l6 6'),
-  dimension: sk('M4 8v8M20 8v8M4 12h16'), exitSketch: sk('M5 12l5 5 9-10'),
+  dimension: sk('M4 8v8M20 8v8M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3'), exitSketch: sk('M5 12l5 5 9-10'),
+  arc: sk('M4 18a9 9 0 0 1 16 0'), spline: sk('M3 17c4-10 7 4 10-4s5-5 8-6'), point: [ly('M12 9a3 3 0 1 0 .01 0', '#1E3F7A', '#1E3F7A', 2.4)],
+  selectTool: [ly('M6 3l12 9-5.5 1.3L16 20l-2.6 1.2-3.2-6.6L6 18z', '#FFFFFF', '#1E3F7A', 1.3)],
+  trim: [...sk('M3 6h18M3 18h18'), ly('M9 6v12', null, '#E05353', 1.6, null, 1, '2 2')], skFillet: sk('M5 20v-8a7 7 0 0 1 7-7h7'),
+  offset: [...sk('M4 18c4-10 12-10 16 0'), ly('M7 21c3-8 7-8 10 0', null, '#F0892A', 1.25)], convert: [...slab(12, 9, 8, 6), ly('M4 13L12 17L20 13', null, '#1E3F7A', 1.8)],
+  construction: [ly('M4 20L20 4', null, '#6B8FD6', 1.6, null, 1, '3 2.4')],
+  rH: sk('M4 12h16M4 9v6M20 9v6'), rV: sk('M12 4v16M9 4h6M9 20h6'), rCoincident: [ly('M12 9a3 3 0 1 0 .01 0', '#F0892A', '#1E3F7A', 1.2), ly('M4 4l5 5M20 20l-5-5', null, '#1E3F7A', 1.25)],
+  rTangent: sk('M3 19h18M12 19a6 6 0 1 1 .01 0'), rParallel: sk('M6 20L12 4M12 20L18 4'), rPerp: sk('M4 19h16M12 19V5'),
+  rEqual: sk('M5 9h14M5 15h14'), rFix: sk('M12 4v14M8 8h8M5 13a7 7 0 0 0 14 0'), rConcentric: sk('M12 5a7 7 0 1 0 .01 0M12 9a3 3 0 1 0 .01 0'),
+  rMidpoint: [...sk('M3 12h18'), ly('M12 9a3 3 0 1 0 .01 0', '#F0892A', '#1E3F7A', 1)], rSymmetric: sk('M12 3v18M4 8l4 4-4 4M20 8l-4 4 4 4'), rCollinear: sk('M2 12h8M14 12h8'),
+  rib: [...slab(12, 12, 8, 5), ly('M10.5 4L13.5 5.5L13.5 17L10.5 15.5Z', '#F0892A', '#2A3644')],
   // solids
   extrude: [...slab(12, 10, 8, 5), ly('M12 9V2.5M9.5 5L12 2.5L14.5 5', null, O, 1.8)],
   cutExtrude: [...slab(12, 8, 8, 6), ly('M12 10.5L16 12.5L12 14.5L8 12.5Z', D, E), ly('M12 2V9M9.5 6.5L12 9L14.5 6.5', null, O, 1.8)],

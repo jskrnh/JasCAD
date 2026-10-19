@@ -174,3 +174,20 @@ input, select { font: inherit; color: inherit; }
 .var .v { grid-column: 2; color: var(--muted); font-family: var(--mono); font-size: 11px; padding: 0 2px; }
 .empty { padding: 18px 14px; color: var(--muted); line-height: 1.5; }
 @media (max-width: 900px) { .pm { width: 250px; } .side { width: 220px !important; } .docname .meta { display: none; } }
+
+/* constraint sketcher */
+.sk-labels { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.sk-lbl { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; border: 0; cursor: pointer; font-family: var(--mono); line-height: 1; white-space: nowrap; }
+.sk-lbl.dim { padding: 3px 6px; border-radius: 5px; background: rgba(255,255,255,.95); color: #101418; font-size: 12px; box-shadow: 0 0 0 1px #9aa6b5, 0 1px 3px rgba(20,30,45,.15); }
+.sk-lbl.dim i { font-style: normal; color: var(--accent-ink); }
+.sk-lbl.rel { width: 17px; height: 17px; padding: 0; border-radius: 4px; background: #e9f0fb; color: #1e3f7a; font-size: 10px; font-weight: 600; box-shadow: 0 0 0 1px #9db5dc; }
+.sk-lbl.bad { background: #fdecea; color: var(--err); box-shadow: 0 0 0 1px var(--err); }
+.sk-lbl:hover { box-shadow: 0 0 0 2px var(--sel); }
+.sk-dimedit { position: absolute; transform: translate(-50%, -50%); width: 96px; height: 28px; z-index: 5; border: 2px solid var(--accent); border-radius: 6px; padding: 0 8px; font-family: var(--mono); font-size: 13px; outline: none; box-shadow: 0 4px 14px rgba(20,30,45,.2); }
+.toolgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.toolgrid button, .relgrid button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 2px; border: 1px solid var(--line); border-radius: 7px; background: #fff; cursor: pointer; font-size: 10.5px; }
+.toolgrid button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.toolgrid button:hover, .relgrid button:hover { background: #f4f6f8; }
+.relgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.skstat { padding: 7px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
+.skstat.ok { background: #eef0f3; color: #101418; font-weight: 500; }
