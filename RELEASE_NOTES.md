@@ -1,6 +1,6 @@
 # jasCAD — Release notes
 
-**Project website:** jascad on Cloudflare Workers (address confirmed after the first successful deploy)
+**Project website:** https://jascad.jskrnh.workers.dev
 
 *jasCAD was called Forge before v0.2.0.*
 
