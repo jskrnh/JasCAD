@@ -1,7 +1,7 @@
-# Cloudflare Workers (static assets). The build runs `npm run build`; Workers serves ./dist.
+# jasCAD on Cloudflare Workers (static assets only).
+# `site/` is the built browser app, committed by .github/workflows/web.yml after every push.
 name = "jascad"
 compatibility_date = "2026-10-01"
 
 [assets]
-directory = "./dist"
-not_found_handling = "single-page-application"
+directory = "./site"

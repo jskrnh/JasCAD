@@ -2,7 +2,40 @@
 
 **Project website:** https://jascad.jskrnh.workers.dev
 
-*jasCAD was called Forge before v0.2.0.*
+*jasCAD was called Forge before v0.2.0. From v0.5.0 it is built on SolidCraft.*
+
+## v0.5.0 — jasCAD on the SolidCraft engine (2026-10-19)
+
+jasCAD now runs on [SolidCraft](https://github.com/bherbruck/solidcraft) 0.16.2, an open-source
+parametric CAD application written in Rust (MIT OR Apache-2.0), restyled to look and work like
+jasCAD. The 3D-printing tools from v0.4.0 are not carried over for now.
+
+### New (from SolidCraft)
+- A much larger CAD core: constraint sketcher, the full set of solid, surface, sheet metal, plastic and mesh tools, assemblies with joints, configurations, and STEP, STL, 3MF and DXF files.
+- Desktop and browser builds from the same Rust code, with SpaceMouse support and navigation presets.
+
+### jasCAD look and feel
+- **Branding:** the jasCAD name, mark, browser tab and installable-app manifest. About credits SolidCraft.
+- **Light theme by default:** white title bar and ribbon, blue accent, orange selection, blue-grey parts.
+- **Shaded icons in jasCAD colours:** grey-blue faces with orange for what a command makes, dark-blue sketch tools, and blue for surfaces.
+- **Ribbon:** every command shows its name under its icon, on up to two lines. Long words shrink instead of breaking. More commands sit on the Solid and Surface tabs, and tab names are in title case.
+- **Feature tree on the left** by default, with a collapsible show / colour column:
+  - an eye for each sketch, and for the bodies each feature makes;
+  - a colour swatch that sets the appearance of those bodies.
+- **SolidWorks mouse navigation** by default.
+- "Report a bug" opens issues on jskrnh/JasCAD. Update checks against SolidCraft releases are off.
+
+### Build and hosting
+- A GitHub Action builds the browser app (Rust → WebAssembly) on every push to `test` and `main` and commits it to `site/`, which Cloudflare serves.
+- The previous TypeScript jasCAD (v0.4.0) is kept on the `jascad-v0.4` branch.
+
+### Known limitations
+- The web build is new. The first deploy happens after the GitHub Action finishes, which takes around 20–40 minutes.
+- SolidCraft's own automated tests were written for its original look. Some UI tests that check colours or toolbar layout will need updating, and they are not run in this repo yet.
+- Print features from v0.4.0 (threads with print fit, snap-fits, lip/groove, insert bosses, split with dowels) are not in this version.
+
+### Tested
+- Built the desktop app (release) and ran it on a software GPU. Checked the ribbon, feature tree, show / colour column (eye hides a body, swatch opens the colour picker), sketch mode and the light theme with screenshots.
 
 ## v0.1.0 — Phase 1 (2026-10-17)
 

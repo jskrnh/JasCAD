@@ -1,8 +1,12 @@
-node_modules
-dist
-release
-desktop/web
-desktop/node_modules
-.wrangler
-*.log
+/target*/
+/plan/
+/dist/
+*~
 .DS_Store
+*.swp
+/.claude/worktrees/
+/target-snapshot
+__pycache__/
+
+# cargo-mutants output (docs/mutation-testing.md)
+mutants.out*/

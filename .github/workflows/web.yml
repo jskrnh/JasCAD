@@ -1,0 +1,56 @@
+# jasCAD: build the browser app (Rust → WebAssembly with trunk) and commit it to `site/`
+# on the same branch. Cloudflare Workers Builds then deploys `site/` (wrangler.toml):
+# the `test` branch to a preview URL, `main` to jascad.jskrnh.workers.dev.
+name: Build web app
+
+on:
+  push:
+    branches: [main, test]
+    paths-ignore: ["site/**", "RELEASE_NOTES.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TRUNK_VERSION: v0.21.14
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web
+      - name: Install trunk
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSL "https://github.com/trunk-rs/trunk/releases/download/${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build
+        working-directory: apps/solidcraft-web
+        run: trunk build --release --public-url ./
+      - name: Check Cloudflare's 25 MiB per-file limit
+        run: |
+          ls -la dist/web
+          big=$(find dist/web -type f -size +25M)
+          if [ -n "$big" ]; then echo "Too big for Cloudflare: $big"; exit 1; fi
+      - name: Commit the built site
+        run: |
+          rm -rf site && cp -r dist/web site
+          git config user.name "jasCAD build"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A site
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "Build web app for ${GITHUB_SHA::7}"
+          git push
