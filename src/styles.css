@@ -191,3 +191,7 @@ input, select { font: inherit; color: inherit; }
 .relgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .skstat { padding: 7px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
 .skstat.ok { background: #eef0f3; color: #101418; font-weight: 500; }
+.stab .badge { display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 3px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px; line-height: 16px; }
+.body-card { cursor: pointer; }
+.body-card.on { border-color: var(--sel); box-shadow: 0 0 0 1px var(--sel) inset; }
+.body-card .kv b { display: inline-flex; align-items: center; gap: 6px; }

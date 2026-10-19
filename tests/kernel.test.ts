@@ -45,5 +45,5 @@ p2.features = [
   { id: 'd', type: 'revolve', name: 'Rev', sketch: 'a2', angle: '360', axis: 'y', op: 'add' },
 ];
 const B2 = new Builder(R); let r2 = B2.rebuild(p2); console.log('shell', r2.errors.map(e=>e.message), r2.props?.volume.toFixed(1));
-const step = await B.exportSTEP(r.bodies).arrayBuffer(); const stl = await B.exportSTL(r.bodies).arrayBuffer();
+const step = await B.exportSTEP(r.shapes).arrayBuffer(); const stl = await B.exportSTL(r.shapes).arrayBuffer();
 console.log('STEP bytes', step.byteLength, 'STL bytes', stl.byteLength);

@@ -111,6 +111,14 @@ const I: Record<string, Layer[]> = {
   file: line('M6 3h9l4 4v14H6zM15 3v4h4'), open: line('M3 7h6l2 2h10v10H3z'), save: line('M5 3h11l3 3v15H5zM8 3v6h8V3M8 21v-7h8v7'),
   trash: line('M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13'), plus: line('M12 5v14M5 12h14'), suppress: line('M12 3a9 9 0 1 0 .01 0M5.6 5.6l12.8 12.8'),
   edit: line('M14 6l4 4-9 9H5v-4z'), rollback: line('M4 12h16M8 8l-4 4 4 4'), mouse3d: line('M4 15a8 4 0 1 0 16 0a8 4 0 1 0 -16 0M8 13V9a4 4 0 0 1 8 0v4'),
+  text: [...slab(12, 11, 8, 4), ly('M8.2 9.6L11.4 8M9.8 8.8L11.4 13.2M12.6 12.4L15.8 10.8M14.2 11.6V7.6', null, O, 1.5)],
+  lip: [ly('M3.5 12L12 16.2L20.5 12V16L12 20.2L3.5 16Z', L, E), ...slab(12, 6.5, 8.5, 1.6), ly('M6.2 10.3L12 13.2L17.8 10.3V8.3L12 11.2L6.2 8.3Z', O, E)],
+  groove: [...slab(12, 8, 8.5, 5), ly('M6.2 12.3L12 15.2L17.8 12.3', null, O, 1.6)],
+  boss: [...slab(12, 12, 8, 4), ...cyl(8.5, 9, 2.4, 1.2, 4, O), ...cyl(15.5, 9, 2.4, 1.2, 4, O), ly('M7.5 9A1 .5 0 1 0 9.5 9A1 .5 0 1 0 7.5 9ZM14.5 9A1 .5 0 1 0 16.5 9A1 .5 0 1 0 14.5 9Z', D)],
+  move: [...slab(10, 8, 6, 5), ly('M15 17H22M20 15L22 17L20 19M18.5 13.5V20.5M16.5 15.5L18.5 13.5L20.5 15.5', null, O, 1.4)],
+  importStep: [...slab(12, 10, 8, 5), ly('M12 1.5V8.5M9.5 6L12 8.5L14.5 6', null, O, 1.8)],
+  export3mf: [...slab(9, 10, 5.5, 4, '#9ad0a0'), ...slab(15, 10, 5.5, 4, '#f3b37a'), ly('M12 8.5V1.5M9.5 4L12 1.5L14.5 4', null, O, 1.8)],
+  bodies: [...slab(8, 6, 5, 4), ...slab(16, 10, 5, 4, O)],
 };
 
 export function iconLayers(name: string) { return I[name] || I.part; }

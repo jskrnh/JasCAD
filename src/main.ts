@@ -8,7 +8,7 @@ import { Viewer, VIEWS, type PickInfo } from './viewer/viewer';
 import { NAV_PRESETS, loadNav, saveNav, type NavSettings } from './viewer/nav';
 import { SpaceMouse } from './viewer/spacemouse';
 import { icon } from './ui/icons';
-import { HOLE_SIZES, holeValues, PRESET_LABEL } from './ui/holes';
+import { HOLE_SIZES, holeValues, PRESET_LABEL, THREADS, guessThread } from './ui/holes';
 import { Evaluator, tryEval } from './model/expr';
 import { entityOutline, resolvePlane } from './kernel/build';
 import { newProject, MATERIALS } from './model/types';
@@ -18,7 +18,7 @@ import { SketchEditor, REL_NAME, type SkTool } from './sketch/editor';
 import { initSolver } from './sketch/solver';
 import { findRegions } from './sketch/profile';
 import gcsWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
-import type { SweepF, LoftF, DraftF, RibF, SkConstraintType } from './model/types';
+import type { SweepF, LoftF, DraftF, RibF, SkConstraintType, ThreadF, TextF, SplitF, BossF, SnapF, LipF, CombineF, MoveF, ImportF, FaceInfo } from './model/types';
 
 /* ------------------------------------------------------------------ helpers */
 const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
@@ -32,7 +32,8 @@ type Tool = SkTool;
 interface Edit { draft: Feature; isNew: boolean; index: number; selEntity: string | null; tool: Tool; pendingPlane?: boolean }
 type Info = 'measure' | 'mass' | 'section' | 'print' | 'vars' | null;
 
-const TYPE_LABEL: Record<string, string> = { sketch: 'Sketch', extrude: 'Extrude', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', hole: 'Hole', pattern: 'Pattern', mirror: 'Mirror', sweep: 'Sweep', loft: 'Loft', draft: 'Draft', rib: 'Rib' };
+const TYPE_LABEL: Record<string, string> = { sketch: 'Sketch', extrude: 'Extrude', revolve: 'Revolve', fillet: 'Fillet', chamfer: 'Chamfer', shell: 'Shell', hole: 'Hole', pattern: 'Pattern', mirror: 'Mirror', sweep: 'Sweep', loft: 'Loft', draft: 'Draft', rib: 'Rib', thread: 'Thread', text: 'Text', split: 'Split', boss: 'Insert boss', snap: 'Snap-fit', lip: 'Lip', combine: 'Combine', move: 'Move', import: 'Imported' };
+const FEAT_ICON: Record<string, string> = { snap: 'snapFit', import: 'importStep' };
 const REL_ICON: Record<string, string> = { horizontal: 'rH', vertical: 'rV', coincident: 'rCoincident', pointOnCurve: 'rCoincident', tangent: 'rTangent', parallel: 'rParallel', perpendicular: 'rPerp', equal: 'rEqual', fix: 'rFix', concentric: 'rConcentric', midpoint: 'rMidpoint', symmetric: 'rSymmetric', collinear: 'rCollinear' };
 const PLANE_NAME: Record<string, string> = { XY: 'Top Plane', XZ: 'Front Plane', YZ: 'Right Plane', face: 'Face' };
 
@@ -42,7 +43,7 @@ class App {
   result: RebuildResult | null = null;
   past: string[] = []; future: string[] = [];
   tab = 'Solids';
-  side: 'tree' | 'vars' = 'tree';
+  side: 'tree' | 'vars' | 'bodies' = 'tree';
   cols = true;
   treeSel: string | null = null;
   info: Info = null;
@@ -65,6 +66,8 @@ class App {
   sk: SketchEditor | null = null;
   gcs: any = null;
   pickMode: 'neutral' | null = null;
+  editBodies = 1;
+  editBBox: [V3, V3] | null = null;
 
   constructor() {
     // storage keys keep the old 'forge.' prefix so work saved before the rename still loads
@@ -234,6 +237,11 @@ class App {
         { id: 'loft', label: 'Loft', icon: 'loft', run: () => this.startFeature('loft') },
         { id: 'draft', label: 'Draft', icon: 'draft', run: () => this.startFeature('draft') },
         { id: 'rib', label: 'Rib', icon: 'rib', run: () => this.startFeature('rib') },
+        { id: 'sepS', label: '', icon: '', sep: true },
+        { id: 'threadF', label: 'Thread', icon: 'thread', run: () => this.startFeature('thread') },
+        { id: 'textF', label: 'Text', icon: 'text', run: () => this.startFeature('text') },
+        { id: 'combineF', label: 'Combine', icon: 'combine', run: () => this.startFeature('combine') },
+        { id: 'moveF', label: 'Move / copy', icon: 'move', run: () => this.startFeature('move') },
       ],
       Surfaces: [
         { id: 's1', label: 'Extruded', icon: 'sExtruded', soon: true }, { id: 's2', label: 'Revolved', icon: 'sRevolved', soon: true },
@@ -258,13 +266,21 @@ class App {
         { id: 'clear', label: 'Clearance hole', icon: 'clearance', run: () => this.startFeature('hole', { preset: 'clearance' }) },
         { id: 'tap', label: 'Self-tap hole', icon: 'thread', run: () => this.startFeature('hole', { preset: 'tap' }) },
         { id: 'sepP', label: '', icon: '', sep: true },
-        { id: 'orient', label: 'Orient', icon: 'orient', soon: true }, { id: 'split', label: 'Split part', icon: 'split', soon: true },
-        { id: 'snap', label: 'Snap-fit', icon: 'snapFit', soon: true },
+        { id: 'bossP', label: 'Insert boss', icon: 'boss', run: () => this.startFeature('boss') },
+        { id: 'threadP', label: 'Thread', icon: 'thread', run: () => this.startFeature('thread') },
+        { id: 'sepP2', label: '', icon: '', sep: true },
+        { id: 'split', label: 'Split part', icon: 'split', run: () => this.startFeature('split') },
+        { id: 'snap', label: 'Snap-fit', icon: 'snapFit', run: () => this.startFeature('snap') },
+        { id: 'lipP', label: 'Lip', icon: 'lip', run: () => this.startFeature('lip') },
+        { id: 'grooveP', label: 'Groove', icon: 'groove', run: () => this.startFeature('lip', { kind: 'groove' }) },
+        { id: 'orient', label: 'Orient', icon: 'orient', soon: true },
       ],
       Mesh: [
         { id: 'impstl', label: 'Import STL', icon: 'importStl', run: () => this.importSTL() },
         { id: 'expstl', label: 'Export STL', icon: 'exportStl', run: () => this.exportFile('stl') },
         { id: 'expstep', label: 'Export STEP', icon: 'exportStep', run: () => this.exportFile('step') },
+        { id: 'exp3mf', label: 'Export 3MF', icon: 'export3mf', run: () => this.exportFile('3mf') },
+        { id: 'impstep', label: 'Import STEP', icon: 'importStep', run: () => this.importSTEP() },
         { id: 'expjson', label: 'Export tree', icon: 'exportJson', run: () => this.exportJSON() },
         { id: 'sepM', label: '', icon: '', sep: true },
         { id: 'repair', label: 'Repair', icon: 'repair', soon: true }, { id: 'boolean', label: 'Mesh boolean', icon: 'combine', soon: true },
@@ -291,8 +307,10 @@ class App {
     const head = `<div class="side-tabs">
       <button class="stab ${this.side === 'tree' ? 'on' : ''}" data-side="tree">Tree</button>
       <button class="stab ${this.side === 'vars' ? 'on' : ''}" data-side="vars">Variables</button>
+      <button class="stab ${this.side === 'bodies' ? 'on' : ''}" data-side="bodies">Bodies${(this.result?.bodies?.length || 0) > 1 ? ` <span class="badge">${this.result!.bodies!.length}</span>` : ''}</button>
       <button class="sqbtn" id="colsBtn" title="${this.cols ? 'Collapse' : 'Expand'} display pane" aria-label="${this.cols ? 'Collapse' : 'Expand'} display pane">${icon(this.cols ? 'chevL' : 'chevR', 14)}</button></div>`;
     if (this.side === 'vars') { el.innerHTML = head + this.varsHTML(); this.bindSideHead(el); this.bindVars(el); return; }
+    if (this.side === 'bodies') { el.innerHTML = head + this.bodiesHTML(); this.bindSideHead(el); this.bindBodies(el); return; }
     const errs = new Map((this.result?.errors || []).map((e) => [e.featureId, e.message]));
     const rb = this.project.rollback;
     const rows: string[] = [];
@@ -311,7 +329,7 @@ class App {
       const err = errs.get(f.id);
       const meta = err ? `<span class="row-err" title="${esc(err)}">!</span>` : `<span class="row-meta">${esc(featureMeta(f, this.project))}</span>`;
       const cls = `${f.suppressed ? 'sup' : ''} ${rb != null && i >= rb ? 'rolled' : ''}`;
-      const ic = f.type === 'extrude' && f.op === 'cut' ? 'cutExtrude' : f.type === 'pattern' && f.mode === 'circular' ? 'circPattern' : f.type;
+      const ic = featIcon(f);
       const eye = f.type === 'sketch' ? (f.hidden ? 'off' : 'on') : null;
       const sw = f.type === 'sketch' ? null : f.color || this.partColor;
       rows.push(row(f.id, ic, f.name, meta, cls, eye, sw));
@@ -409,6 +427,32 @@ class App {
       if (this.project.rollback != null) this.project.rollback = Math.min(this.project.rollback, this.project.features.length);
     });
     if (deps.length && f.type === 'sketch') this.toast(`Deleted ${f.name} and ${deps.length} feature(s) that used it`);
+  }
+
+  /* ------------------------------------------------------------ bodies */
+  bodiesHTML() {
+    const bs = this.result?.bodies || []; const dens = this.project.material.density;
+    if (!bs.length) return '<div class="vars"><div class="hint">No solid bodies yet.</div></div>';
+    return `<div class="vars"><div class="hint">Each body is a separate solid. Bodies export as separate objects in 3MF, so slicers can colour or place them independently.</div>
+      ${bs.map((b, i) => { const sz = [0, 1, 2].map((k) => fmt(b.bbox[1][k] - b.bbox[0][k], 1)).join(' × ');
+        return `<div class="card body-card ${this.bodySel === i ? 'on' : ''}" data-body="${i}"><div class="kv"><b>${icon('part', 16)} Body ${i + 1}</b><span>${fmt((b.volume / 1000) * dens, 1)} g</span></div>
+        <div class="kv"><span>Volume</span><b>${fmt(b.volume / 1000, 2)} cm³</b></div><div class="kv"><span>Size</span><b>${sz}</b></div>
+        <div class="two"><button class="btn" data-bact="move:${i}">${icon('move', 16)} Move</button><button class="btn" data-bact="copy:${i}">${icon('move', 16)} Copy</button></div></div>`; }).join('')}
+      ${bs.length > 1 ? `<button class="btn" data-bact="combine:0">${icon('combine', 16)} Combine bodies…</button>` : '<div class="hint">Make more bodies with <b>New body</b> in Extrude, Split part, Move/copy or Import STEP.</div>'}</div>`;
+  }
+  bodySel: number | null = null;
+  bindBodies(el: HTMLElement) {
+    el.querySelectorAll<HTMLElement>('[data-body]').forEach((c) => (c.onclick = (ev) => {
+      if ((ev.target as HTMLElement).closest('[data-bact]')) return;
+      const i = +c.dataset.body!; this.bodySel = this.bodySel === i ? null : i;
+      this.viewer.selected = new Set(this.bodySel == null ? [] : this.viewer.faces.filter((f) => f.body === i).map((f) => 'f:' + f.id));
+      this.viewer.recolor(); this.renderSide();
+    }));
+    el.querySelectorAll<HTMLElement>('[data-bact]').forEach((b) => (b.onclick = () => {
+      const [a, i] = b.dataset.bact!.split(':');
+      if (a === 'combine') this.startFeature('combine');
+      else this.startFeature('move', { bodies: [+i], copy: a === 'copy' });
+    }));
   }
 
   /* ------------------------------------------------------------ variables */
@@ -519,6 +563,54 @@ class App {
         if (!sks.length) return this.toast('Draw an open line for the rib first (a sketch on a plane through the part)');
         draft = { id, type, name, sketch: sks[sks.length - 1].id, thickness: 'wall' in this.project.variables ? 'wall' : '2' } as RibF; break;
       }
+      case 'thread': {
+        const fc = this.selectedFaces().find((x) => x.cyl);
+        const g = fc?.cyl ? guessThread(fc.cyl.r, fc.cyl.internal) : null; const t = g || THREADS[6];
+        draft = { id, type, name, face: fc ? cylRef(fc) : null, size: t.size, pitch: String(t.p), length: '10', clearance: '0.15', full: true } as ThreadF; break;
+      }
+      case 'text': {
+        const pl = this.planeFromSelection(); const ev = new Evaluator(this.project.variables);
+        const top = this.result?.props?.bbox[1][2] ?? 0;
+        const plane: PlaneRef = pl || { kind: 'XY', offset: fmt(top, 3) };
+        let x = 0, y = 0;
+        const sf = this.selectedFaces().find((f) => f.type === 'PLANE');
+        if (pl && sf) { const P = resolvePlane(plane, ev); const v = sub(sf.center, P.origin); x = dot(v, P.xDir); y = dot(v, P.yDir); }
+        draft = { id, type, name, plane, text: 'jasCAD', size: '8', x: fmt(x, 2), y: fmt(y, 2), angle: '0', depth: '1', op: 'add', align: 'center' } as TextF; break;
+      }
+      case 'split': {
+        const bb = this.result?.props?.bbox; if (!bb) return this.toast('Model a part first, then split it');
+        const sz = [0, 1, 2].map((i) => bb[1][i] - bb[0][i]); const ax = sz.indexOf(Math.max(...sz));
+        const plane = (['YZ', 'XZ', 'XY'] as const)[ax];
+        this.editBBox = bb;
+        draft = { id, type, name, plane, offset: this.splitCenter(plane), keep: 'both', gap: '10', dowels: 2, dowelD: '4', dowelLen: '10', clearance: '0.2' } as SplitF; break;
+      }
+      case 'boss': {
+        const pl = this.planeFromSelection(); const hv = holeValues('insert', 'M3', false)!;
+        draft = { id, type, name, plane: pl || { kind: 'XY' }, points: [], size: 'M3', od: fmt(+hv.diameter + 4, 1), insertD: hv.diameter, height: '6', holeDepth: hv.depth } as BossF;
+        pendingPlane = true; break;
+      }
+      case 'snap': {
+        const pl = this.planeFromSelection();
+        draft = { id, type, name, plane: pl || { kind: 'XY' }, point: null, angle: '0', length: '12', thickness: '1.6', width: '6', lip: '1', lead: '30' } as SnapF;
+        pendingPlane = true; break;
+      }
+      case 'lip': {
+        const kind = opts.kind || 'lip';
+        draft = { id, type, name: this.nextLabel(kind === 'groove' ? 'Groove' : 'Lip'), face: null, kind, height: '3', width: '1.2', clearance: '0.2' } as LipF; break;
+      }
+      case 'combine': {
+        const n = this.result?.bodies?.length || 0;
+        if (n < 2) return this.toast('Combine needs two bodies. Use "New body" in Extrude, Split, Move/copy or Import STEP first.');
+        this.editBodies = n;
+        draft = { id, type, name, op: 'union', target: 0, tools: Array.from({ length: n - 1 }, (_, i) => i + 1) } as CombineF; break;
+      }
+      case 'move': {
+        const n = this.result?.bodies?.length || 0; if (!n) return this.toast('Nothing to move yet');
+        this.editBodies = n;
+        draft = { id, type, name: opts.copy ? this.nextLabel('Copy') : name, bodies: opts.bodies || [], dx: '0', dy: '0', dz: '0', axis: 'z', angle: '0', copy: !!opts.copy } as MoveF;
+        if (opts.copy) (draft as MoveF).dx = fmt((this.result!.props!.bbox[1][0] - this.result!.props!.bbox[0][0]) + 5, 1);
+        break;
+      }
       default: return;
     }
     this.info = null;
@@ -535,6 +627,10 @@ class App {
     const i = this.project.features.findIndex((f) => f.id === id); if (i < 0) return;
     const draft = clone(this.project.features[i]);
     this.edit = { draft, isNew: false, index: i, selEntity: null, tool: 'select' };
+    const nb = this.result?.bodies?.length || 1;
+    if (draft.type === 'combine') this.editBodies = Math.max(nb + draft.tools.length, draft.target + 1, ...draft.tools.map((t) => t + 1));
+    if (draft.type === 'move') this.editBodies = draft.copy ? Math.max(1, nb - (draft.bodies.length || nb / 2)) : nb;
+    if (draft.type === 'split') this.editBBox = null;
     this.info = null;
     if (draft.type === 'sketch') { this.tab = 'Sketch'; this.enterSketchView(); }
     this.applyPickMode(); this.syncPickHighlight();
@@ -581,7 +677,7 @@ class App {
 
   applyPickMode() {
     const d = this.edit?.draft;
-    this.viewer.pickFilter = !d ? 'any' : d.type === 'fillet' || d.type === 'chamfer' ? 'edge' : d.type === 'shell' || d.type === 'hole' || d.type === 'draft' ? 'face' : d.type === 'sketch' ? (this.edit!.pendingPlane ? 'face' : this.sk?.tool === 'convert' ? 'edge' : 'none') : 'none';
+    this.viewer.pickFilter = !d ? 'any' : d.type === 'fillet' || d.type === 'chamfer' ? 'edge' : ['shell', 'hole', 'draft', 'thread', 'text', 'boss', 'snap', 'lip'].includes(d.type) ? 'face' : d.type === 'sketch' ? (this.edit!.pendingPlane ? 'face' : this.sk?.tool === 'convert' ? 'edge' : 'none') : 'none';
     this.viewer.canvas.style.cursor = d?.type === 'sketch' && this.sk && this.sk.tool !== 'select' && !this.edit!.pendingPlane ? 'crosshair' : '';
   }
 
@@ -593,8 +689,37 @@ class App {
       this.viewer.selected = new Set(this.viewer.edges.filter((e) => refs.some((r) => dist(r.p, e.mid) < 0.05)).map((e) => 'e:' + e.id));
     } else if (d.type === 'shell' || d.type === 'draft') {
       this.viewer.selected = new Set(this.viewer.faces.filter((f) => d.faces.some((r) => dist(r.p, f.center) < 1e-3)).map((f) => 'f:' + f.id));
+    } else if (d.type === 'thread') {
+      const f = d.face ? this.threadFace(d.face.p) : null;
+      this.viewer.selected = new Set(f ? ['f:' + f.id] : []);
+    } else if (d.type === 'lip') {
+      const f = d.face ? this.viewer.faces.find((x) => x.type === 'PLANE' && x.normal && d.face!.n && dot(x.normal, d.face!.n) > 0.999 && Math.abs(dot(sub(d.face!.p, x.center), x.normal)) < 1e-3) : null;
+      this.viewer.selected = new Set(f ? ['f:' + f.id] : []);
     } else this.viewer.selected = new Set();
     this.viewer.recolor();
+  }
+  threadFace(p: V3) {
+    return this.viewer.faces.find((f) => {
+      const c = f.cyl; if (!c) return false;
+      const v = sub(p, c.base); const t = dot(v, c.dir);
+      if (t < -1e-2 || t > c.len + 1e-2) return false;
+      const r = sub(v, [c.dir[0] * t, c.dir[1] * t, c.dir[2] * t] as V3);
+      return Math.abs(Math.hypot(...r) - c.r) < 2e-2;
+    }) || null;
+  }
+  splitCenter(plane: 'XY' | 'XZ' | 'YZ') {
+    const bb = this.editBBox || this.result?.props?.bbox; if (!bb) return '0';
+    const i = plane === 'YZ' ? 0 : plane === 'XZ' ? 1 : 2; const c = (bb[0][i] + bb[1][i]) / 2;
+    return fmt(plane === 'XZ' ? -c : c, 2);
+  }
+  /** Click on a flat face for a placed feature (hole, boss, snap, text): moves the feature's plane there and returns sketch-plane coordinates. */
+  placeOnFace(d: { plane: PlaneRef; points?: [number, number][] }, f: FaceInfo, point: V3, reset: boolean): [number, number] {
+    const e = this.edit!; const ev = new Evaluator(this.project.variables);
+    let P = resolvePlane(d.plane, ev);
+    const samePlane = dot(P.normal, f.normal!) > 0.9999 && Math.abs(dot(sub(f.center, P.origin), P.normal)) < 1e-4;
+    if (!samePlane || e.pendingPlane) { d.plane = facePlane(f); if (reset && d.points) d.points = []; P = resolvePlane(d.plane, ev); e.pendingPlane = false; }
+    const v = sub(point, P.origin);
+    return [snap(dot(v, P.xDir), 0.5), snap(dot(v, P.yDir), 0.5)];
   }
 
   confirmEdit() {
@@ -637,7 +762,7 @@ class App {
     if (rerender) this.renderPanel();
   }
 
-  toolFeatures() { return this.project.features.slice(0, this.edit && !this.edit.isNew ? this.edit.index : this.insertIndex()).filter((f) => ['extrude', 'revolve', 'hole', 'pattern', 'sweep', 'loft', 'rib'].includes(f.type)); }
+  toolFeatures() { return this.project.features.slice(0, this.edit && !this.edit.isNew ? this.edit.index : this.insertIndex()).filter((f) => ['extrude', 'revolve', 'hole', 'pattern', 'sweep', 'loft', 'rib', 'boss', 'text', 'snap'].includes(f.type)); }
 
   /* ------------------------------------------------------------ picking */
   onPick(p: PickInfo) {
@@ -666,6 +791,23 @@ class App {
         if (p.face.type !== 'PLANE') return this.toast('Pick a flat face');
         this.upd((x) => { x.plane = facePlane(p.face!); });
         e.pendingPlane = false; this.applyPickMode(); this.enterSketchView(); this.renderAll(); return;
+      }
+      if (d.type === 'thread' && p.kind === 'face' && p.face) {
+        const c = p.face.cyl; if (!c) return this.toast('Pick a cylindrical face: a shaft, or the inside wall of a hole');
+        const g = guessThread(c.r, c.internal);
+        this.upd((x) => { x.face = cylRef(p.face!, p.point || undefined); if (g) { x.size = g.size; x.pitch = String(g.p); } else x.size = 'custom'; });
+        this.syncPickHighlight(); return;
+      }
+      if (d.type === 'lip' && p.kind === 'face' && p.face) {
+        if (p.face.type !== 'PLANE' || !p.point) return this.toast('Click the flat rim at the top of a shelled wall');
+        this.upd((x) => { x.face = { p: p.point!, n: p.face!.normal!, k: 'PLANE' }; });
+        this.syncPickHighlight(); return;
+      }
+      if ((d.type === 'boss' || d.type === 'snap' || d.type === 'text') && p.kind === 'face' && p.face && p.point) {
+        if (p.face.type !== 'PLANE') return this.toast('Click a flat face');
+        const pt = this.placeOnFace(d as any, p.face, p.point, d.type === 'boss');
+        this.upd((x) => { if (x.type === 'boss') x.points.push(pt); else if (x.type === 'snap') x.point = pt; else { x.x = fmt(pt[0], 2); x.y = fmt(pt[1], 2); } });
+        return;
       }
       if (d.type === 'hole' && p.kind === 'face' && p.face && p.point) {
         if (p.face.type !== 'PLANE') return this.toast('Holes go on flat faces');
@@ -767,7 +909,7 @@ class App {
     const sketches = this.project.features.slice(0, e.isNew ? e.index : e.index).filter((f) => f.type === 'sketch') as SketchF[];
     const sketchSel = (cur: string) => `<label class="field"><span>Sketch</span><select data-sel="sketch">${sketches.map((s) => `<option value="${s.id}" ${s.id === cur ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>`;
     const opSeg = (op: string) => this.seg('op', [['add', 'Boss'], ['cut', 'Cut'], ['new', 'New body']], op);
-    const icName = d.type === 'extrude' && d.op === 'cut' ? 'cutExtrude' : d.type === 'pattern' && d.mode === 'circular' ? 'circPattern' : d.type;
+    const icName = featIcon(d);
     let body = '';
     switch (d.type) {
       case 'sketch': {
@@ -839,6 +981,80 @@ class App {
           <div class="grp"><span class="lbl">Material side</span>${this.seg('ribside', [['auto', 'Automatic'], ['a', 'Side A'], ['b', 'Side B']], d.flip === undefined ? 'auto' : d.flip ? 'b' : 'a')}</div>`;
         break;
       }
+      case 'thread': {
+        const tf = d.face ? this.threadFace(d.face.p) : null; const c = tf?.cyl;
+        const known = THREADS.some((t) => t.size === d.size);
+        body = `<div class="grp"><span class="lbl">Cylindrical face</span><div class="list active"><div class="li ${d.face ? 'on' : ''}"><span>${d.face ? (c ? `${c.internal ? 'Hole' : 'Shaft'} Ø${fmt(c.r * 2, 2)} × ${fmt(c.len, 1)}` : 'Picked face') : 'Click a shaft, or the inside of a hole'}</span></div></div></div>
+          <div class="grp"><span class="lbl">Thread</span><label class="field"><span>Size</span><select data-sel="tsize">${THREADS.map((t) => `<option value="${t.size}" ${t.size === d.size ? 'selected' : ''}>${t.size} × ${t.p}</option>`).join('')}<option value="custom" ${known ? '' : 'selected'}>Custom</option></select></label>
+          ${this.exprField('pitch', 'Pitch', d.pitch)}${this.exprField('clearance', 'Fit', d.clearance)}
+          <div class="hint">${c ? (c.internal ? 'Internal (tapped) thread. Model the hole at the tap-drill size: ' : 'External thread. Model the shaft at the nominal size: ') : ''}${c ? (c.internal ? 'major Ø − 1.08 × pitch.' : 'the major Ø.') : ''} Fit is the radial print clearance — 0.1–0.2 mm on FDM.</div></div>
+          <div class="grp"><span class="lbl">Length</span>${this.check('full', 'Whole length of the face', !!d.full)}
+          ${d.full ? '' : this.exprField('length', 'L', d.length) + this.check('fromEnd', 'Start from the far end', !!d.fromEnd)}</div>
+          <div class="hint">Threads are real geometry (exported to STEP, STL and 3MF). Long threads can take a few seconds to rebuild.</div>`;
+        break;
+      }
+      case 'text': {
+        body = `<div class="grp"><span class="lbl">Text</span><label class="field"><span>Aa</span><input data-txt="text" value="${esc(d.text)}" spellcheck="false" aria-label="Text"></label>
+          ${this.seg('align', [['left', 'Left'], ['center', 'Centre']], d.align || 'center')}</div>
+          <div class="grp"><span class="lbl">Placement</span><div class="hint">On ${d.plane.kind === 'face' ? 'a picked face' : PLANE_NAME[d.plane.kind]}${d.plane.offset && d.plane.offset !== '0' ? ' + ' + esc(d.plane.offset) : ''}. Click a flat face to move the text there.</div>
+          <div class="two">${this.exprField('x', 'X', d.x)}${this.exprField('y', 'Y', d.y)}</div><div class="two">${this.exprField('size', 'H', d.size)}${this.exprField('angle', '∠', d.angle, '°')}</div></div>
+          <div class="grp"><span class="lbl">Operation</span>${this.seg('op', [['add', 'Emboss'], ['cut', 'Engrave']], d.op)}${this.exprField('depth', 'Depth', d.depth)}
+          <div class="hint">Text 6 mm or taller with 0.6–1 mm depth prints crisply on FDM. Engrave vertical faces for the cleanest result.</div></div>`;
+        break;
+      }
+      case 'split':
+        body = `<div class="grp"><span class="lbl">Split plane</span>${this.seg('splane', [['YZ', 'Across X'], ['XZ', 'Across Y'], ['XY', 'Across Z']], d.plane)}${this.exprField('soffset', 'Offset', d.offset)}
+          <div class="hint">Split parts that are too big for the bed, or to print each half flat.</div></div>
+          <div class="grp"><span class="lbl">Keep</span>${this.seg('keep', [['both', 'Both halves'], ['positive', 'Side +'], ['negative', 'Side −']], d.keep)}${d.keep === 'both' ? this.exprField('gap', 'Gap', d.gap) : ''}</div>
+          <div class="grp"><span class="lbl">Alignment dowels</span><label class="field"><span>N</span><input data-int="dowels" value="${d.dowels}" aria-label="Number of dowels"><span class="val">0–6</span></label>
+          ${d.dowels ? `<div class="two">${this.exprField('dowelD', 'Ø', d.dowelD)}${this.exprField('dowelLen', 'L', d.dowelLen)}</div>${this.exprField('clearance', 'Fit', d.clearance)}` : ''}
+          <div class="hint">Matching holes are cut in both halves. Use ${esc(d.dowelD)} mm pins, or filament offcuts for Ø1.75.</div></div>`;
+        break;
+      case 'boss':
+        body = `<div class="grp"><span class="lbl">Heat-set insert</span><label class="field"><span>Size</span><select data-sel="bsize">${HOLE_SIZES.map((sz) => `<option ${sz === d.size ? 'selected' : ''}>${sz}</option>`).join('')}</select></label>
+          <div class="two">${this.exprField('od', 'OD', d.od)}${this.exprField('insertD', 'Ø in', d.insertD)}</div><div class="two">${this.exprField('height', 'H', d.height)}${this.exprField('holeDepth', 'Depth', d.holeDepth)}</div>
+          <div class="hint">A standing boss with a pilot hole for a brass insert. Keep OD ≥ insert Ø + 2 × wall.</div></div>
+          <div class="grp"><span class="lbl">Positions (${d.points.length})</span><div class="hint">${e.pendingPlane ? 'Click a flat face to place the first boss.' : 'Click to add more; edit X/Y below.'}</div>
+          ${d.points.map((pt, i) => `<div class="two" style="grid-template-columns:1fr 1fr auto"><label class="field"><span>X</span><input data-hpt="${i}:0" value="${pt[0]}"></label><label class="field"><span>Y</span><input data-hpt="${i}:1" value="${pt[1]}"></label><button class="sqbtn" style="height:34px;width:30px" data-rmpt="${i}" aria-label="Remove boss">✕</button></div>`).join('')}</div>`;
+        break;
+      case 'snap': {
+        const ev = new Evaluator(this.project.variables); let strain = NaN;
+        try { const L = ev.eval(d.length), t = ev.eval(d.thickness), y = ev.eval(d.lip); strain = (1.5 * t * y) / (L * L) * 100; } catch { /* */ }
+        const lim = /PLA/.test(this.project.material.name) ? 2.5 : /TPU/.test(this.project.material.name) ? 50 : 4;
+        body = `<div class="grp"><span class="lbl">Position</span><div class="hint">${d.point ? 'Click another spot to move it.' : 'Click a flat face where the hook should stand.'}</div>
+          ${d.point ? `<div class="two"><label class="field"><span>X</span><input data-spt="0" value="${d.point[0]}"></label><label class="field"><span>Y</span><input data-spt="1" value="${d.point[1]}"></label></div>` : ''}${this.exprField('angle', '∠', d.angle, '°')}</div>
+          <div class="grp"><span class="lbl">Cantilever hook</span><div class="two">${this.exprField('length', 'L', d.length)}${this.exprField('thickness', 'T', d.thickness)}</div>
+          <div class="two">${this.exprField('width', 'W', d.width)}${this.exprField('lip', 'Hook', d.lip)}</div>${this.exprField('lead', 'Lead', d.lead, '°')}</div>
+          ${isFinite(strain) ? `<div class="${strain > lim ? 'errbox' : 'skstat ok'}">${strain > lim ? '▲' : '●'} Bending strain ${fmt(strain, 1)}% · ${esc(this.project.material.name)} allows ~${lim}%${strain > lim ? '. Make the arm longer or thinner.' : ''}</div>` : ''}
+          <div class="hint">Print with the arm standing in Z-up layers along its length for strength.</div>`;
+        break;
+      }
+      case 'lip':
+        body = `<div class="grp"><span class="lbl">Rim face</span><div class="list active"><div class="li ${d.face ? 'on' : ''}"><span>${d.face ? 'Rim face picked' : 'Click the top rim of a shelled wall'}</span></div></div></div>
+          <div class="grp"><span class="lbl">Type</span>${this.seg('lkind', [['lip', 'Lip (raised)'], ['groove', 'Groove (recessed)']], d.kind)}</div>
+          <div class="grp"><span class="lbl">Size</span><div class="two">${this.exprField('height', 'H', d.height)}${this.exprField('width', 'W', d.width)}</div>${this.exprField('clearance', 'Fit', d.clearance)}
+          <div class="hint">Put a lip on the box and a groove with the same H and W on the lid. Fit adds the print clearance to the groove.</div></div>`;
+        break;
+      case 'combine': {
+        const n = this.editBodies;
+        body = `<div class="grp"><span class="lbl">Operation</span>${this.seg('cop', [['union', 'Add'], ['subtract', 'Subtract'], ['intersect', 'Common']], d.op)}</div>
+          <div class="grp"><span class="lbl">Main body</span><label class="field"><span>Body</span><select data-sel="ctarget">${Array.from({ length: n }, (_, i) => `<option value="${i}" ${i === d.target ? 'selected' : ''}>Body ${i + 1}</option>`).join('')}</select></label></div>
+          <div class="grp"><span class="lbl">${d.op === 'subtract' ? 'Bodies to subtract' : 'Bodies to combine'}</span><div class="list">${Array.from({ length: n }, (_, i) => i).filter((i) => i !== d.target).map((i) => `<label class="li chk"><span><input type="checkbox" data-ctool="${i}" ${d.tools.includes(i) ? 'checked' : ''}> Body ${i + 1}</span></label>`).join('')}</div>
+          <div class="hint">Body numbers match the Bodies tab.</div></div>`;
+        break;
+      }
+      case 'move': {
+        const n = this.editBodies;
+        body = `<div class="grp"><span class="lbl">Bodies (${d.bodies.length ? d.bodies.length : 'all'})</span><div class="list">${Array.from({ length: n }, (_, i) => `<label class="li chk"><span><input type="checkbox" data-mbody="${i}" ${d.bodies.includes(i) ? 'checked' : ''}> Body ${i + 1}</span></label>`).join('')}</div><div class="hint">Tick none to move every body.</div></div>
+          <div class="grp"><span class="lbl">Translate</span><div class="two">${this.exprField('dx', 'ΔX', d.dx)}${this.exprField('dy', 'ΔY', d.dy)}</div>${this.exprField('dz', 'ΔZ', d.dz)}</div>
+          <div class="grp"><span class="lbl">Rotate (about origin, before moving)</span>${this.seg('axis', [['x', 'X'], ['y', 'Y'], ['z', 'Z']], d.axis)}${this.exprField('angle', '∠', d.angle, '°')}</div>
+          <div class="grp">${this.check('copy', 'Keep the original (copy)', !!d.copy)}</div>`;
+        break;
+      }
+      case 'import':
+        body = `<div class="grp"><span class="lbl">Imported STEP</span><div class="kv"><span>File</span><b>${esc(d.file)}</b></div><div class="kv"><span>Size</span><b>${fmt(d.data.length * 0.75 / 1024, 0)} KB</b></div>
+          <div class="hint">Imported as a separate body. Use Combine to merge it, or Move to position it.</div></div>`;
+        break;
       case 'extrude':
         body = `<div class="grp"><span class="lbl">From</span>${sketchSel(d.sketch)}</div>
           <div class="grp"><span class="lbl">Operation</span>${opSeg(d.op)}</div>
@@ -951,6 +1167,11 @@ class App {
       if (i.dataset.skopt === 'sides') this.sk.polygonSides = Math.max(3, Math.min(64, Math.round(+i.value) || 6)); else this.sk.filletRadius = i.value || '2';
     }));
     el.querySelectorAll<HTMLInputElement>('[data-loft]').forEach((c) => (c.onchange = () => this.upd((d) => { const id = c.dataset.loft!; d.sketches = c.checked ? [...d.sketches.filter((x: string) => x !== id), id] : d.sketches.filter((x: string) => x !== id); })));
+    el.querySelectorAll<HTMLInputElement>('[data-txt]').forEach((i) => { i.oninput = () => this.upd((d) => { d.text = i.value; }, false); i.onkeydown = (ev) => ev.stopPropagation(); });
+    el.querySelectorAll<HTMLInputElement>('[data-int]').forEach((i) => (i.onchange = () => this.upd((d) => { d[i.dataset.int!] = Math.max(0, Math.min(6, Math.round(+i.value) || 0)); })));
+    el.querySelectorAll<HTMLInputElement>('[data-spt]').forEach((i) => (i.onchange = () => { const v = parseFloat(i.value); if (isFinite(v)) this.upd((d) => { if (d.point) d.point[+i.dataset.spt!] = v; }); }));
+    el.querySelectorAll<HTMLInputElement>('[data-ctool]').forEach((c) => (c.onchange = () => this.upd((d) => { const k = +c.dataset.ctool!; d.tools = c.checked ? [...new Set([...d.tools, k])].sort() : d.tools.filter((x: number) => x !== k); })));
+    el.querySelectorAll<HTMLInputElement>('[data-mbody]').forEach((c) => (c.onchange = () => this.upd((d) => { const k = +c.dataset.mbody!; d.bodies = c.checked ? [...new Set([...d.bodies, k])].sort() : d.bodies.filter((x: number) => x !== k); })));
     const pn = el.querySelector<HTMLElement>('#pickNeutral'); if (pn) pn.onclick = () => { this.pickMode = this.pickMode === 'neutral' ? null : 'neutral'; this.renderPanel(); };
     el.querySelectorAll<HTMLInputElement>('[data-pf]').forEach((c) => (c.onchange = () => this.upd((d) => { const id = c.dataset.pf!; d.features = c.checked ? [...new Set([...d.features, id])] : d.features.filter((x: string) => x !== id); })));
   }
@@ -961,6 +1182,7 @@ class App {
     else if (key.startsWith('en:')) { const [, id, k] = key.split(':'); const en = d.entities.find((x: any) => x.id === id); if (en) en[k] = v; }
     else if (key.startsWith('pp:')) { const [, id, i, j] = key.split(':'); const en = d.entities.find((x: any) => x.id === id); if (en) en.pts[+i][+j] = v; }
     else if (key === 'offset') { d.plane.offset = v; if (this.sk) { this.sk.plane = resolvePlane(d.plane, new Evaluator(this.project.variables)); this.viewer.setGrid(this.sk.plane); this.sk.render(); } }
+    else if (key === 'soffset') d.offset = v;
     else if (key === 'cbd') d.cbore.d = v;
     else if (key === 'cbh') d.cbore.depth = v;
     else { d[key] = v; if (d.type === 'hole' && key === 'diameter') d.preset = 'custom'; }
@@ -977,6 +1199,11 @@ class App {
         case 'hend': d.throughAll = v === 'through'; break;
         case 'axis': d.axis = v; break;
         case 'ribside': d.flip = v === 'auto' ? undefined : v === 'b'; break;
+        case 'align': d.align = v; break;
+        case 'splane': d.plane = v; d.offset = this.splitCenter(v as any); break;
+        case 'keep': d.keep = v; break;
+        case 'lkind': d.kind = v; if (/^(Lip|Groove) \d+$/.test(d.name)) d.name = this.nextLabel(v === 'groove' ? 'Groove' : 'Lip'); break;
+        case 'cop': d.op = v; break;
         case 'sdir': d.outward = v === 'out'; break;
         case 'mode': d.mode = v; break;
         case 'dir': d.dir = v; break;
@@ -1001,6 +1228,9 @@ class App {
       if (key === 'reverse') d.reverse = on;
       if (key === 'frenet') d.frenet = on;
       if (key === 'ruled') d.ruled = on;
+      if (key === 'full') d.full = on;
+      if (key === 'fromEnd') d.fromEnd = on;
+      if (key === 'copy') d.copy = on;
       if (key === 'showrel' && this.sk) { this.sk.showRelations = on; this.sk.render(); }
       if (key === 'cbore') { const hv = holeValues('clearance', d.size, true)!; d.cbore = on ? hv.cbore : null; }
     });
@@ -1010,6 +1240,9 @@ class App {
       if (key === 'sketch') d.sketch = v;
       if (key === 'profile') d.profile = v;
       if (key === 'path') d.path = v;
+      if (key === 'tsize') { d.size = v; const t = THREADS.find((x) => x.size === v); if (t) d.pitch = String(t.p); }
+      if (key === 'bsize') { d.size = v; const hv = holeValues('insert', v, false); if (hv) { d.insertD = hv.diameter; d.holeDepth = hv.depth; d.od = fmt(+hv.diameter + 4, 1); } }
+      if (key === 'ctarget') { d.target = +v; d.tools = d.tools.filter((t: number) => t !== +v); }
       if (key === 'size') { d.size = v; const hv = holeValues(d.preset, v, !!d.cbore); if (hv) { d.diameter = hv.diameter; d.depth = hv.depth; d.throughAll = hv.throughAll; d.cbore = d.cbore ? hv.cbore : null; } }
     });
   }
@@ -1210,8 +1443,10 @@ class App {
       { sep: true },
       { label: 'Export STEP (AP214)', icon: 'exportStep', run: () => this.exportFile('step') },
       { label: 'Export STL (binary)', icon: 'exportStl', run: () => this.exportFile('stl') },
+      { label: 'Export 3MF (with colours)', icon: 'export3mf', run: () => this.exportFile('3mf') },
       { label: 'Export feature tree (JSON)', icon: 'exportJson', run: () => this.exportJSON() },
       { sep: true },
+      { label: 'Import STEP as a body', icon: 'importStep', run: () => this.importSTEP() },
       { label: 'Import STL as reference', icon: 'importStl', run: () => this.importSTL() },
       ...(this.viewer.referenceBox() ? [{ label: 'Remove STL reference', icon: 'trash', run: () => this.viewer.setReference(null) }] : []),
     ], r.left, r.bottom + 4);
@@ -1334,12 +1569,17 @@ class App {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
   safeName() { return (this.project.name || 'part').replace(/[^\w.-]+/g, '_'); }
-  async exportFile(fmt: 'step' | 'stl') {
+  async exportFile(fmt: 'step' | 'stl' | '3mf') {
     if (!this.result?.mesh) return this.toast('Nothing to export yet');
     this.toast(`Exporting ${fmt.toUpperCase()}…`);
     try {
-      const buf = await this.kernel.export(fmt);
-      this.download(buf, `${this.safeName()}.${fmt === 'step' ? 'step' : 'stl'}`, fmt === 'step' ? 'application/step' : 'model/stl');
+      const colors: Record<string, string> = {};
+      for (const f of this.project.features) if (f.color) colors[f.id] = f.color;
+      const nb = this.result.bodies?.length || 1;
+      const names = Array.from({ length: nb }, (_, i) => nb > 1 ? `${this.project.name} - body ${i + 1}` : this.project.name);
+      const buf = await this.kernel.export(fmt, { colors, defaultColor: this.partColor, name: this.project.name, names });
+      const mime = fmt === 'step' ? 'application/step' : fmt === '3mf' ? 'model/3mf' : 'model/stl';
+      this.download(buf, `${this.safeName()}.${fmt}`, mime);
       this.toast(`${fmt.toUpperCase()} exported (${(buf.byteLength / 1024).toFixed(0)} KB)`);
     } catch (e: any) { this.toast('Export failed: ' + e.message); }
   }
@@ -1357,6 +1597,16 @@ class App {
     this.commit(() => { this.project = p; this.partColor = (p as any).color || '#9fb3cc'; });
     this.toast(`Opened ${p.name}`);
     setTimeout(() => this.viewer.fit(), 400);
+  }
+  async importSTEP() {
+    const f = await this.pickFile('.step,.stp'); if (!f) return;
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    if (bytes.length > 25e6) return this.toast('That STEP file is over 25 MB. Simplify it first.');
+    let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const feat: ImportF = { id: uid(), type: 'import', name: f.name.replace(/\.(step|stp)$/i, ''), file: f.name, format: 'step', data: btoa(bin) };
+    this.commit(() => { this.project.features.splice(this.insertIndex(), 0, feat); if (this.project.rollback != null) this.project.rollback++; });
+    this.toast(`Imported ${f.name} as a new body`);
+    setTimeout(() => this.viewer.fit(), 600);
   }
   async importSTL() {
     const f = await this.pickFile('.stl'); if (!f) return;
@@ -1452,8 +1702,28 @@ function featureMeta(f: Feature, p: Project): string {
     case 'loft': return '×' + f.sketches.length;
     case 'draft': return v(f.angle) + '°';
     case 'rib': return v(f.thickness);
+    case 'thread': return THREADS.some((t) => t.size === f.size) ? f.size : 'P' + v(f.pitch);
+    case 'text': return '"' + (f.text.length > 8 ? f.text.slice(0, 7) + '…' : f.text) + '"';
+    case 'split': return f.plane + (f.dowels ? ' ·' + f.dowels : '');
+    case 'boss': return f.size + (f.points.length > 1 ? ' ×' + f.points.length : '');
+    case 'snap': return v(f.length);
+    case 'lip': return v(f.height);
+    case 'combine': return ({ union: 'add', subtract: 'sub', intersect: 'common' } as Record<string, string>)[f.op];
+    case 'move': return f.copy ? 'copy' : '';
+    case 'import': return 'STEP';
     default: return '';
   }
+}
+function featIcon(f: Feature) {
+  return f.type === 'extrude' && f.op === 'cut' ? 'cutExtrude' : f.type === 'pattern' && f.mode === 'circular' ? 'circPattern' : f.type === 'lip' && f.kind === 'groove' ? 'groove' : FEAT_ICON[f.type] || f.type;
+}
+/** An exact point on a cylindrical face: the click point (or the face centroid) projected radially onto the surface. */
+function cylRef(f: FaceInfo, near?: V3): { p: V3; k: string } {
+  const c = f.cyl!; const q = near || f.center; const t = dot(sub(q, c.base), c.dir);
+  const ax: V3 = [c.base[0] + c.dir[0] * t, c.base[1] + c.dir[1] * t, c.base[2] + c.dir[2] * t];
+  let v = sub(q, ax); let l = Math.hypot(...v);
+  if (l < 1e-6) { v = Math.abs(c.dir[2]) < 0.9 ? [c.dir[1], -c.dir[0], 0] : [1, 0, 0]; l = Math.hypot(...v); }
+  return { p: [ax[0] + (v[0] / l) * c.r, ax[1] + (v[1] / l) * c.r, ax[2] + (v[2] / l) * c.r], k: 'CYLINDRE' };
 }
 function renameVarEverywhere<T>(obj: T, oldName: string, newName: string): T {
   const re = new RegExp(`\\b${oldName}\\b`, 'g');

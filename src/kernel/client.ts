@@ -29,11 +29,11 @@ export class KernelClient {
     this.w.postMessage({ type: 'rebuild', id, project: JSON.parse(JSON.stringify(p)) });
   }
 
-  export(format: 'step' | 'stl'): Promise<ArrayBuffer> {
+  export(format: 'step' | 'stl' | '3mf', extra: { colors?: Record<string, string>; defaultColor?: string; name?: string; names?: string[] } = {}): Promise<ArrayBuffer> {
     const id = ++this.seq;
     return new Promise((res, rej) => {
       this.waiters.set(id, (m) => (m.error ? rej(new Error(m.error)) : res(m.buf)));
-      this.w.postMessage({ type: 'export', id, format });
+      this.w.postMessage({ type: 'export', id, format, ...extra });
     });
   }
 }

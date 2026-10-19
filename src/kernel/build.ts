@@ -195,6 +195,22 @@ export class Builder {
   private cache: Snapshot[] = [];
   private varsKey = '';
   private vars: Record<string, string> = {};
+  private imports = new Map<string, Shape[]>();
+  fontLoaded = false;
+  /** Async work that must finish before a synchronous rebuild (STEP import, fonts). */
+  async prepare(project: Project, loadFont?: () => Promise<ArrayBuffer>) {
+    for (const f of project.features) {
+      if (f.type === 'import' && !this.imports.has(f.id + ':' + f.data.length)) {
+        const bin = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0));
+        const shape: any = await this.R.importSTEP(new Blob([bin]));
+        const solids: Shape[] = [];
+        try { for (const sd of (shape.solids || [])) solids.push(sd); } catch { /* */ }
+        if (!solids.length) solids.push(shape);
+        this.imports.set(f.id + ':' + f.data.length, solids);
+      }
+      if (f.type === 'text' && !this.fontLoaded && loadFont) { await this.R.loadFont(await loadFont(), 'jascad-sans'); this.fontLoaded = true; }
+    }
+  }
   constructor(private R: R, private gcs: any = null) {}
 
   private emptySnap(): Snapshot {
@@ -202,7 +218,7 @@ export class Builder {
   }
 
   /** Evaluate the tree. Re-uses cached results up to the first changed feature. */
-  rebuild(project: Project): RebuildResult & { bodies: Shape[] } {
+  rebuild(project: Project): RebuildResult & { shapes: Shape[] } {
     const t0 = Date.now();
     const R = this.R;
     const ev = new Evaluator(project.variables);
@@ -236,6 +252,7 @@ export class Builder {
       if (!f.suppressed) {
         try { this.apply(f, next, ev); }
         catch (e: any) {
+          if ((globalThis as any).JASCAD_DEBUG) console.error(e?.stack || e);
           next.error = cleanErr(e); errors.push({ featureId: f.id, message: next.error });
           next.bodies = snap.bodies.slice(); next.tools = new Map(snap.tools); next.sketches = new Map(snap.sketches);
         }
@@ -246,8 +263,9 @@ export class Builder {
       this.collectSketch(f, snap, ev, sketchesOut);
     }
     this.cache = newCache;
+    this.lastFaceOwner = snap.faceOwner;
     const out = this.output(snap, project, ev);
-    return { ...out, errors, sketches: sketchesOut, ms: Date.now() - t0, bodies: snap.bodies };
+    return { ...out, errors, sketches: sketchesOut, ms: Date.now() - t0, shapes: snap.bodies };
   }
 
   private collectSketch(f: Feature, snap: Snapshot, ev: Evaluator, out: SketchDisplay[]) {
@@ -289,6 +307,190 @@ export class Builder {
   private apply(f: Feature, s: Snapshot, ev: Evaluator) {
     const R = this.R;
     switch (f.type) {
+      case 'thread': {
+        if (!s.bodies.length) throw new Error('No body to thread');
+        if (!f.face) throw new Error('Click a cylindrical face (a shaft or a hole)');
+        const P = ev.eval(f.pitch); if (P <= 0) throw new Error('Pitch must be > 0');
+        const clr = ev.eval(f.clearance || '0');
+        let done = false;
+        s.bodies = s.bodies.map((b) => {
+          if (done) return b;
+          const fc = b.faces.find((x) => String(x.geomType) === 'CYLINDRE' && vlen(sub(cylAxisPoint(x), f.face!.p)) < 1e9 && onFace(R, x, f.face!.p));
+          if (!fc) return b;
+          const cy = cylinderInfo(fc)!; done = true;
+          const L = f.full ? cy.len : Math.min(cy.len, ev.eval(f.length));
+          const start = f.fromEnd ? add(cy.base, mul(cy.dir, cy.len - L)) : cy.base;
+          // ISO-style 60° thread made by twist-extruding a cam-shaped section (exact helicoid, robust booleans)
+          const depth = 0.6134 * P, half = 0.354, N = 24;
+          const sectionR = (t: number) => { const bump = Math.max(0, 1 - Math.abs(t - 0.5) / half); return cy.internal ? cy.r - 0.02 + (depth + clr + 0.02) * bump : cy.r - Math.max(clr, 0.02) - depth * bump; }; // never coincident with the existing surface
+          const pts: P2[] = Array.from({ length: N }, (_, i) => { const t = i / N, a = t * Math.PI * 2, r = sectionR(t); return [r * Math.cos(a), r * Math.sin(a)] as P2; });
+          // one smooth closed spline → the helicoid has a single lateral face (fast booleans, slightly rounded crests print well)
+          const pl = new R.Plane(add(start, mul(cy.dir, -0.01)), perp(cy.dir), cy.dir);
+          const makeHel = (ring: P2[]) => {
+            const section: any = R.drawPointsInterpolation([...ring, ring[0]] as any, { tolerance: 1e-3 } as any);
+            return (section.sketchOnPlane(pl) as any).extrude(L + 0.02, { twistAngle: (360 * (L + 0.02)) / P }) as Shape;
+          };
+          let helicoid = makeHel(pts);
+          // OCCT occasionally builds this twisted solid inside-out; rebuild with the opposite winding if so
+          if (R.measureVolume(helicoid as any) < 0) helicoid = makeHel([...pts].reverse());
+          const v0 = R.measureVolume(b as any);
+          const okVol = (x: Shape | null) => { if (!x) return false; try { const v = R.measureVolume(x as any); return isFinite(v) && v > 0 && v < v0 - 1e-6; } catch { return false; } };
+          let out: Shape | null = null;
+          try {
+            if (cy.internal) {
+              // tap: replace a sleeve around the hole with an exact cylinder minus the helicoid. The helicoid then only
+              // meets planes and exact coaxial cylinders, which is ~2-3x faster than cutting the part directly.
+              const Ro = cy.r + depth + clr + 0.4;
+              const sleeve = R.makeCylinder(Ro, L, start, cy.dir) as Shape;
+              const rest = b.cut(sleeve.clone()) as Shape;
+              const removed = v0 - R.measureVolume(rest as any), expect = Math.PI * (Ro * Ro - cy.r * cy.r) * L;
+              if (Math.abs(removed - expect) < expect * 0.01) out = rest.fuse(sleeve.cut(helicoid.clone()) as Shape, { optimisation: 'sameFace' } as any) as Shape;
+              if (!okVol(out)) out = b.cut(helicoid) as Shape;            // thin wall: cut the part directly
+            } else {
+              // replace the threaded length of the shaft with the helicoid
+              let rest: Shape | null = null;
+              try { rest = b.cut(R.makeCylinder(cy.r + 0.3, L, start, cy.dir) as Shape) as Shape; if (!(R.measureVolume(rest as any) > 1e-6)) rest = null; } catch { rest = null; }
+              out = rest ? (rest.fuse(helicoid) as Shape) : helicoid;
+            }
+            if (!okVol(out)) out = null;
+          } catch { out = null; }
+          if (!out) throw new Error('The thread could not be cut on this face');
+          return out;
+        });
+        if (!done) throw new Error('Pick a cylindrical face (a shaft or a hole)');
+        return;
+      }
+      case 'text': {
+        if (!this.fontLoaded) throw new Error('Font not loaded yet');
+        if (!f.text.trim()) throw new Error('Type some text');
+        const P = resolvePlane(f.plane, ev);
+        const size = ev.eval(f.size), depth = ev.eval(f.depth);
+        if (size <= 0 || depth <= 0) throw new Error('Size and depth must be > 0');
+        let d: any = R.drawText(f.text, { fontSize: size, fontFamily: 'jascad-sans' });
+        if (f.align === 'center') { const b = d.boundingBox; d = d.translate(-(b.bounds[0][0] + b.bounds[1][0]) / 2, -(b.bounds[0][1] + b.bounds[1][1]) / 2); }
+        const ang = ev.eval(f.angle || '0'); if (ang) d = d.rotate(ang, [0, 0]);
+        d = d.translate(ev.eval(f.x), ev.eval(f.y));
+        const origin = f.op === 'cut' ? add(P.origin, mul(P.normal, 0.01)) : add(P.origin, mul(P.normal, -0.01));
+        const solid = (d.sketchOnPlane(new R.Plane(origin, P.xDir, P.normal)) as any).extrude(f.op === 'cut' ? -(depth + 0.01) : depth + 0.01) as Shape;
+        s.tools.set(f.id, { tool: solid, op: f.op });
+        this.applyOp(s, solid, f.op);
+        return;
+      }
+      case 'split': {
+        if (!s.bodies.length) throw new Error('No body to split');
+        const off = ev.eval(f.offset), gap = ev.eval(f.gap || '0');
+        const pn = f.plane === 'XY' ? [0, 0, 1] : f.plane === 'XZ' ? [0, -1, 0] : [1, 0, 0];
+        const n = pn as V3;
+        const out: Shape[] = [];
+        for (const b of s.bodies) {
+          let body = b;
+          if (f.dowels > 0) body = this.dowelCut(body, n, off, f, ev);
+          const res = (body as any).split(f.plane, off);
+          const pos = res.positive as Shape | null, neg = res.negative as Shape | null;
+          if (!pos || !neg) { out.push(b); continue; }
+          if (f.keep !== 'negative') out.push(gap ? (pos.clone().translate(mul(n, gap)) as Shape) : pos);
+          if (f.keep !== 'positive') out.push(neg);
+        }
+        if (out.length === s.bodies.length && f.keep === 'both') throw new Error('The split plane does not cut the part');
+        s.bodies = out;
+        return;
+      }
+      case 'boss': {
+        const P = resolvePlane(f.plane, ev);
+        if (!f.points.length) throw new Error('Click a flat face to place the boss');
+        const od = ev.eval(f.od), id = ev.eval(f.insertD), h = ev.eval(f.height), hd = ev.eval(f.holeDepth);
+        if (od <= id) throw new Error('Outer diameter must be larger than the insert hole');
+        let boss: Shape | null = null, holes: Shape | null = null;
+        for (const [x, y] of f.points) {
+          const base = add(add(add(P.origin, mul(P.xDir, x)), mul(P.yDir, y)), mul(P.normal, -0.05));
+          const c = R.makeCylinder(od / 2, h + 0.05, base, P.normal) as Shape;
+          boss = boss ? (boss.fuse(c) as Shape) : c;
+          const top = add(base, mul(P.normal, h + 0.05));
+          const hc = R.makeCylinder(id / 2, hd + 0.1, add(top, mul(P.normal, 0.05)), mul(P.normal, -1)) as Shape;
+          holes = holes ? (holes.fuse(hc) as Shape) : hc;
+        }
+        this.applyOp(s, boss!, 'add');
+        this.applyOp(s, holes!, 'cut');
+        s.tools.set(f.id, { tool: boss!.cut(holes!) as Shape, op: 'add' });
+        return;
+      }
+      case 'snap': {
+        const P = resolvePlane(f.plane, ev);
+        if (!f.point) throw new Error('Click a flat face to place the snap-fit');
+        const L = ev.eval(f.length), t = ev.eval(f.thickness), W = ev.eval(f.width), lip = ev.eval(f.lip), lead = ev.eval(f.lead || '30');
+        const hookH = Math.min(L * 0.45, lip / Math.tan((Math.max(10, Math.min(80, lead)) * Math.PI) / 180));
+        const a = (ev.eval(f.angle || '0') * Math.PI) / 180;
+        const u: V3 = norm(add(mul(P.xDir, Math.cos(a)), mul(P.yDir, Math.sin(a))));
+        const n = P.normal; const wv = norm(cross(n, u));
+        const base = add(add(add(P.origin, mul(P.xDir, f.point[0])), mul(P.yDir, f.point[1])), mul(n, -0.05));
+        const prof: [number, number][] = [[0, 0], [t, 0], [t, L - hookH], [t + lip, L - hookH], [t, L], [0, L]];
+        const pl = new R.Plane(add(base, mul(wv, -W / 2)), u, wv);
+        let pen = R.draw(prof[0]); for (let i = 1; i < prof.length; i++) pen = pen.lineTo([prof[i][0], prof[i][1] + 0.05]);
+        void pl;
+        // build in the (u, n) plane and extrude along wv
+        const plane2 = new R.Plane(add(base, mul(wv, -W / 2)), u, mul(wv, -1));
+        const solid = (pen.close().sketchOnPlane(plane2) as any).extrude(-W) as Shape;
+        // the sketch's local y must be the face normal; verify orientation and flip if needed
+        const bb = (solid as any).boundingBox.bounds as [V3, V3]; const mid = mul(add(bb[0], bb[1]), 0.5);
+        let fixed = solid;
+        if (dot(sub(mid, base), n) < 0) fixed = solid.clone().mirror(new R.Plane(base, u, n) as any) as Shape;
+        s.tools.set(f.id, { tool: fixed, op: 'add' });
+        this.applyOp(s, fixed, 'add');
+        return;
+      }
+      case 'lip': {
+        if (!f.face) throw new Error('Click the rim (top edge face) of a shelled part');
+        const h = ev.eval(f.height), w = ev.eval(f.width), c = ev.eval(f.clearance || '0');
+        let done = false;
+        s.bodies = s.bodies.map((b) => {
+          if (done) return b;
+          const pts = resolveFaces(R, b, [f.face!]); if (!pts.length) return b;
+          let fc = b.faces.find((x) => String(x.geomType) === 'PLANE' && onFace(R, x, pts[0]));
+          if (!fc && f.face!.n) { // the stored point drifted after an upstream edit: take the nearest rim-like face with the same normal
+            let best = Infinity;
+            for (const x of b.faces) { if (String(x.geomType) !== 'PLANE') continue; const v = x.clone().normalAt(); if (dot(norm([v.x, v.y, v.z]), f.face!.n) < 0.999) continue; if (!x.clone().innerWires().length) continue; const c = x.center; const dd = vlen(sub([c.x, c.y, c.z], f.face!.p)); if (dd < best) { best = dd; fc = x; } }
+          }
+          if (!fc) return b;
+          const nn = fc.clone().normalAt(); const n: V3 = norm([nn.x, nn.y, nn.z]);
+          const inner = fc.clone().innerWires(); if (!inner.length) throw new Error('This face has no inner edge. Pick the rim of a shelled part.');
+          const iw = inner[0];
+          const off = (d: number) => { const a = iw.clone().offset2D(d), b2 = iw.clone().offset2D(-d); return R.measureLength(a) > R.measureLength(b2) ? a : b2; };
+          const shrink = (d: number) => { const a = iw.clone().offset2D(d), b2 = iw.clone().offset2D(-d); return R.measureLength(a) < R.measureLength(b2) ? a : b2; };
+          const outerW = f.kind === 'lip' ? off(w) : off(w + c);
+          const innerW = f.kind === 'lip' ? (iw.clone() as any) : c > 0 ? shrink(c) : (iw.clone() as any);
+          const ext = (wire: any, from: number, len: number) => R.basicFaceExtrusion(R.makeFace(wire).translate(mul(n, from)) as any, new R.Vector(mul(n, len))) as any as Shape;
+          const tool = f.kind === 'lip'
+            ? (ext(outerW, -0.01, h + 0.01).cut(ext(innerW, -0.02, h + 0.04)) as Shape)
+            : (ext(outerW, 0.01, -(h + c + 0.01)).cut(ext(innerW, 0.02, -(h + c + 0.04))) as Shape);
+          done = true;
+          return (f.kind === 'lip' ? b.fuse(tool!) : b.cut(tool!)) as Shape;
+        });
+        if (!done) throw new Error('Face reference lost — pick the rim face again');
+        return;
+      }
+      case 'combine': {
+        const ti = f.target, tools = f.tools.filter((i) => i !== ti && i >= 0 && i < s.bodies.length);
+        if (ti < 0 || ti >= s.bodies.length) throw new Error('Pick a target body');
+        if (!tools.length) throw new Error('Pick at least one other body');
+        let t = s.bodies[ti];
+        for (const i of tools) { const o = s.bodies[i]; t = (f.op === 'union' ? t.fuse(o) : f.op === 'subtract' ? t.cut(o) : t.intersect(o)) as Shape; }
+        s.bodies = s.bodies.filter((_, i) => !tools.includes(i)).map((b) => (b === s.bodies[ti] ? t : b));
+        return;
+      }
+      case 'move': {
+        const idx = f.bodies.length ? f.bodies : s.bodies.map((_, i) => i);
+        const v: V3 = [ev.eval(f.dx || '0'), ev.eval(f.dy || '0'), ev.eval(f.dz || '0')]; const ang = ev.eval(f.angle || '0');
+        const moved = idx.filter((i) => i < s.bodies.length).map((i) => { let b = s.bodies[i].clone() as Shape; if (ang) b = b.rotate(ang, [0, 0, 0], AXIS[f.axis]) as Shape; return b.translate(v) as Shape; });
+        if (f.copy) s.bodies = [...s.bodies, ...moved];
+        else { let k = 0; s.bodies = s.bodies.map((b, i) => (idx.includes(i) ? moved[k++] : b)); }
+        return;
+      }
+      case 'import': {
+        const shapes = this.imports.get(f.id + ':' + f.data.length);
+        if (!shapes) throw new Error('Importing…');
+        for (const sh of shapes) s.bodies.push(sh.clone() as Shape);
+        return;
+      }
       case 'sketch': {
         const plane = resolvePlane(f.plane, ev);
         let drawing = f.entities.length ? sketchDrawing(R, f.entities, ev) : null;
@@ -351,7 +553,7 @@ export class Builder {
         if (!s.bodies.length) throw new Error('Ribs need an existing body');
         const t = ev.eval(f.thickness); if (t <= 0) throw new Error('Thickness must be > 0');
         const P = sk.plane;
-        const bb = (s.bodies.length === 1 ? s.bodies[0] : (R.makeCompound(s.bodies) as any)).boundingBox.bounds as [V3, V3];
+        const bb = (s.bodies.length === 1 ? s.bodies[0] : (R.makeCompound(s.bodies.map((x) => x.clone())) as any)).boundingBox.bounds as [V3, V3];
         const box = R.makeBox(bb[0], bb[1]) as Shape;
         const build = (flip: boolean) => {
           let rib: Shape | null = null;
@@ -510,6 +712,35 @@ export class Builder {
     }
   }
 
+  private dowelCut(b: Shape, n: V3, off: number, f: import('../model/types').SplitF, ev: Evaluator): Shape {
+    const R = this.R;
+    const d = ev.eval(f.dowelD) + ev.eval(f.clearance || '0'), L = ev.eval(f.dowelLen);
+    const bb = (b as any).boundingBox.bounds as [V3, V3];
+    const axes = [0, 1, 2].filter((i) => Math.abs(n[i]) < 0.5);
+    const span = axes.map((i) => bb[1][i] - bb[0][i]);
+    const long = span[0] >= span[1] ? 0 : 1;
+    const ni = [0, 1, 2].find((i) => Math.abs(n[i]) > 0.5)!;
+    const cands: V3[] = [];
+    const cnt = Math.max(1, Math.min(6, f.dowels));
+    for (let k = 0; k < cnt; k++) {
+      const p: V3 = [0, 0, 0];
+      p[axes[long]] = bb[0][axes[long]] + (span[long] * (k + 1)) / (cnt + 1);
+      p[axes[1 - long]] = (bb[0][axes[1 - long]] + bb[1][axes[1 - long]]) / 2;
+      p[ni] = off * (n[ni] >= 0 ? 1 : -1);
+      cands.push(p);
+    }
+    let out = b;
+    for (const p of cands) {
+      const hole = R.makeCylinder(d / 2, L + 1, add(p, mul(n, -(L / 2 + 0.5))), n) as Shape;
+      // only where the hole is fully surrounded by material
+      try {
+        const v = R.measureVolume(out.intersect(hole) as any), full = Math.PI * (d / 2) ** 2 * (L + 1);
+        if (v > full * 0.97) out = out.cut(hole) as Shape;
+      } catch { /* skip */ }
+    }
+    return out;
+  }
+
   private trackOwnership(s: Snapshot, featureId: string) {
     for (const b of s.bodies) {
       for (const fc of b.faces) { const h = fc.hashCode; if (!s.faceOwner.has(h)) s.faceOwner.set(h, featureId); }
@@ -524,13 +755,21 @@ export class Builder {
     const V: number[] = [], N: number[] = [], T: number[] = [];
     const FG: { start: number; count: number; faceId: number }[] = [];
     const L: number[] = []; const EG: { start: number; count: number; edgeId: number }[] = [];
-    for (const b of s.bodies) {
-      const m = b.mesh({ tolerance: 0.03, angularTolerance: 0.12 });
+    res.bodies = [];
+    for (const [bi, b] of s.bodies.entries()) {
+      const cached = this.meshCache.get(b);
+      const freeform = cached ? cached.freeform : b.faces.some((x) => !['PLANE', 'CYLINDRE', 'CONE', 'SPHERE', 'TORUS'].includes(String(x.geomType)));
+      const q = freeform ? { tolerance: 0.15, angularTolerance: 0.9 } : { tolerance: 0.03, angularTolerance: 0.12 };
+      const m = cached ? cached.m : b.mesh(q);
+      const e = cached ? cached.e : b.meshEdges(q);
+      if (!cached) this.meshCache.set(b, { m, e, freeform });
       const base = V.length / 3, tbase = T.length;
+      let bvol = 0, bbb: [V3, V3] = [[0, 0, 0], [0, 0, 0]];
+      try { bvol = R.measureVolume(b as any); bbb = (b as any).boundingBox.bounds; } catch { /* */ }
+      res.bodies.push({ tri: [tbase / 3, m.triangles.length / 3], volume: bvol, bbox: bbb });
       V.push(...m.vertices); N.push(...m.normals);
       for (const t of m.triangles) T.push(t + base);
       for (const g of m.faceGroups) FG.push({ start: g.start + tbase, count: g.count, faceId: g.faceId });
-      const e = b.meshEdges({ tolerance: 0.03, angularTolerance: 0.12 });
       const lbase = L.length / 3;
       L.push(...e.lines);
       for (const g of e.edgeGroups) EG.push({ start: g.start + lbase, count: g.count, edgeId: g.edgeId });
@@ -546,7 +785,8 @@ export class Builder {
           else xDir = norm(cross([0, 0, 1], normal));
         }
         let area = 0; try { area = R.measureArea(fc); } catch { /* ignore */ }
-        res.faces.push({ id: fc.hashCode, owner: s.faceOwner.get(fc.hashCode) ?? null, type, area, center, normal, xDir });
+        const cyl = type === 'CYLINDRE' ? cylinderInfo(fc) : undefined;
+        res.faces.push({ id: fc.hashCode, owner: s.faceOwner.get(fc.hashCode) ?? null, type, area, center, normal, xDir, cyl, body: bi });
       }
       for (const ed of b.edges) {
         const p = ed.pointAt(0.5);
@@ -559,7 +799,7 @@ export class Builder {
     res.mesh = { vertices: new Float32Array(V), normals: new Float32Array(N), triangles: new Uint32Array(T), faceGroups: FG };
     res.edges = { lines: new Float32Array(L), edgeGroups: EG };
     try {
-      const comp = s.bodies.length === 1 ? s.bodies[0] : (R.makeCompound(s.bodies) as any);
+      const comp = s.bodies.length === 1 ? s.bodies[0] : (R.makeCompound(s.bodies.map((x) => x.clone())) as any);
       const vp = R.measureShapeVolumeProperties(comp);
       const sp = R.measureShapeSurfaceProperties(comp);
       const bb = comp.boundingBox; const bounds = bb.bounds as [V3, V3];
@@ -570,14 +810,53 @@ export class Builder {
     return res;
   }
 
+  /** 3MF: one object per body, per-triangle colours from the feature that created each face. */
+  export3MFData(bodies: Shape[], colorOf: (faceId: number) => string) {
+    const objs: { vertices: Float32Array; triangles: Uint32Array; colors: string[] }[] = [];
+    for (const b of bodies) {
+      const m = b.mesh({ tolerance: 0.01, angularTolerance: 0.08 });
+      const colors: string[] = new Array(m.triangles.length / 3);
+      for (const g of m.faceGroups) { const c = colorOf(g.faceId); for (let t = g.start / 3; t < (g.start + g.count) / 3; t++) colors[t] = c; }
+      objs.push({ vertices: new Float32Array(m.vertices), triangles: new Uint32Array(m.triangles), colors });
+    }
+    return objs;
+  }
+  lastFaceOwner = new Map<number, string>();
+  private meshCache = new WeakMap<object, { m: any; e: any; freeform: boolean }>();
+
   exportSTEP(bodies: Shape[]): Blob {
-    const comp = bodies.length === 1 ? bodies[0] : (this.R.makeCompound(bodies) as any);
+    const comp = bodies.length === 1 ? bodies[0] : (this.R.makeCompound(bodies.map((x) => x.clone())) as any);
     return comp.blobSTEP();
   }
   exportSTL(bodies: Shape[], fine = true): Blob {
-    const comp = bodies.length === 1 ? bodies[0] : (this.R.makeCompound(bodies) as any);
+    const comp = bodies.length === 1 ? bodies[0] : (this.R.makeCompound(bodies.map((x) => x.clone())) as any);
     return comp.blobSTL({ binary: true, tolerance: fine ? 0.01 : 0.05, angularTolerance: fine ? 0.08 : 0.2 });
   }
+}
+
+/** Axis, radius and extent of a cylindrical face (OCCT: u = angle, v = height; params normalised 0..1). */
+function cylinderInfo(fc: any): { base: V3; dir: V3; r: number; len: number; internal: boolean } | undefined {
+  try {
+    const p = [0, 1 / 3, 2 / 3].map((u) => fc.pointOnSurface(u, 0)).map((v: any) => [v.x, v.y, v.z] as V3);
+    const q = fc.pointOnSurface(0, 1); const top: V3 = [q.x, q.y, q.z];
+    const c = circum3(p[0], p[1], p[2]); if (!c) return undefined;
+    let dir = norm(sub(top, p[0])); const len = vlen(sub(top, p[0]));
+    const r = vlen(sub(p[0], c));
+    const nn = fc.normalAt(p[0] as any); const n: V3 = [nn.x, nn.y, nn.z];
+    const internal = dot(n, sub(p[0], c)) < 0;
+    let base = c;
+    // canonical orientation: the dominant axis component points positive (helix sweeps are reliable that way)
+    const k = [0, 1, 2].reduce((a, i) => (Math.abs(dir[i]) > Math.abs(dir[a]) ? i : a), 0);
+    if (dir[k] < 0) { base = add(base, mul(dir, len)); dir = mul(dir, -1); }
+    return { base, dir, r, len, internal };
+  } catch { return undefined; }
+}
+function cylAxisPoint(fc: any): V3 { const c = fc.center; return [c.x, c.y, c.z]; }
+function onFace(R: R, fc: any, p: V3) { try { return new R.FaceFinder().atDistance(0, p, 0.3).find(fc.clone()).length > 0; } catch { return false; } }
+function circum3(a: V3, b: V3, c: V3): V3 | null {
+  const ab = sub(b, a), ac = sub(c, a); const n = cross(ab, ac); const n2 = dot(n, n); if (n2 < 1e-12) return null;
+  const t = add(mul(cross(n, ab), dot(ac, ac)), mul(cross(ac, n), dot(ab, ab)));
+  return add(a, mul(t, 1 / (2 * n2)));
 }
 
 function perp(n: V3): V3 { return norm(Math.abs(n[2]) < 0.9 ? cross([0, 0, 1], n) : cross(n, [0, 1, 0])); }

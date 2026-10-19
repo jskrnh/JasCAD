@@ -101,3 +101,46 @@ The first working build of the browser CAD app. It has a real B-rep kernel, a pa
 - Node kernel tests for each new feature. Volumes match hand calculations: a variable-driven rectangle, the sweep (π·r²·path length), the gusset rib, a split-region sketch and a sketch with a hole.
 - Browser tests of every sketch tool, dimension editing, the fully-defined state, sweep, loft and rib through the UI.
 - Both earlier regression suites still pass unchanged.
+
+## v0.4.0 — Print-ready features, bodies, 3MF and STEP import (2026-10-19)
+
+### New
+- **Thread:** real modelled threads on shafts (external) and holes (internal). Covers ISO metric coarse sizes from M2 to M30, plus 1/4-20 and 3/8-16. jasCAD reads the size from the face you pick. You can set a print fit (radial clearance), thread the whole face or a set length, and start the thread from either end.
+- **Text:** emboss or engrave text on any flat face or datum plane. You can set the height, depth, angle and alignment.
+- **Split part:** cut a part across X, Y or Z so oversized prints fit the bed. You can keep both halves with a gap between them, or just one side. Optional alignment dowel holes (0–6) are cut in both halves, with a fit clearance.
+- **Insert boss:** stand-off bosses with pilot holes for brass heat-set inserts (M2–M8). Click to place as many as you need.
+- **Snap-fit:** a cantilever hook with a lead-in angle. A live check estimates bending strain for your material (PLA ~2.5%, PETG/ABS ~4%) and warns when the arm is too stiff.
+- **Lip and groove:** a matching lip and groove on the rim of a shelled box and its lid, with a fit clearance.
+- **Multi-body parts:**
+  - **Bodies** tab: volume, mass and size for each body, and click a body to highlight it.
+  - **Combine:** add, subtract or keep the common volume of bodies.
+  - **Move / copy:** translate and rotate bodies.
+- **Import STEP:** brings a STEP file in as a body, stored inside the project so the project file stays self-contained.
+- **Export 3MF:** each body becomes its own object, and per-feature colours carry over as 3MF materials. The mesh is welded and watertight, ready for PrusaSlicer, Bambu Studio and Cura.
+
+### Changed
+- The Print tab holds the new print tools. Thread, Text, Combine and Move/copy are also on the Solids tab.
+- New shaded icons for text, lip, groove, boss, move, STEP import, 3MF export and bodies.
+- Freeform surfaces such as threads now mesh more coarsely, so the viewport stays responsive. Exports still use full precision.
+
+### Fixed
+- A part with several bodies could lose its geometry after mass properties ran or after exporting STEP or STL (an OpenCASCADE compound consumed the bodies).
+- The rib clipping step had the same problem when more than one body was present.
+
+### Known limitations
+- Threads rebuild in about 4–15 s, depending on length. The result is cached, so later edits to other features stay fast.
+- An internal thread needs at least ~0.5 mm of wall around the thread. Thinner walls fall back to a slower direct cut.
+- Combine and Move refer to bodies by their number (Body 1, Body 2…). If an upstream change adds or removes a body, check these features.
+- Orient-for-printing, thickness/curvature/zebra analysis, surfacing and mesh repair are still to come.
+
+### Tested
+- Node kernel tests for every new feature:
+  - External and internal threads.
+  - Text emboss and engrave.
+  - Split with dowels: two bodies, with the volume matching hand calculation.
+  - Bosses, snap-fit, lip and groove.
+  - Combine and move.
+  - A STEP round-trip (24,000 mm³ in and out).
+  - 3MF output, checked as manifold (every edge shared by exactly two triangles).
+- A browser test of every new tool through the UI: placement clicks, panels, the Bodies tab, 3MF download, STEP file import, and lip on a shelled box.
+- Earlier node suites still pass.

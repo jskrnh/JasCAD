@@ -20,3 +20,18 @@ export function holeValues(preset: string, size: string, cbore: boolean) {
 }
 
 export const PRESET_LABEL: Record<string, string> = { clearance: 'Clearance', tap: 'Self-tap', insert: 'Heat-set insert', custom: 'Custom' };
+
+/** ISO metric coarse threads (+ two common imperial). d = major diameter, p = pitch. */
+export const THREADS: { size: string; d: number; p: number }[] = [
+  { size: 'M2', d: 2, p: 0.4 }, { size: 'M2.5', d: 2.5, p: 0.45 }, { size: 'M3', d: 3, p: 0.5 }, { size: 'M4', d: 4, p: 0.7 },
+  { size: 'M5', d: 5, p: 0.8 }, { size: 'M6', d: 6, p: 1 }, { size: 'M8', d: 8, p: 1.25 }, { size: 'M10', d: 10, p: 1.5 },
+  { size: 'M12', d: 12, p: 1.75 }, { size: 'M16', d: 16, p: 2 }, { size: 'M20', d: 20, p: 2.5 }, { size: 'M24', d: 24, p: 3 },
+  { size: 'M30', d: 30, p: 3.5 }, { size: '1/4-20', d: 6.35, p: 1.27 }, { size: '3/8-16', d: 9.525, p: 1.5875 },
+];
+/** Best standard size for a picked cylinder: shafts match the major diameter, holes the tap-drill (minor) diameter. */
+export function guessThread(r: number, internal: boolean) {
+  const D = 2 * r;
+  let best = THREADS[0], err = Infinity;
+  for (const t of THREADS) { const e = Math.abs((internal ? t.d - 1.0825 * t.p : t.d) - D); if (e < err) { err = e; best = t; } }
+  return err < Math.max(0.6, D * 0.12) ? best : null;
+}

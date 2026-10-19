@@ -79,7 +79,18 @@ export interface LoftF extends Base { type: 'loft'; sketches: string[]; ruled?: 
 export interface DraftF extends Base { type: 'draft'; angle: Expr; faces: FaceRef[]; neutral: FaceRef | null; pull?: 'z' | 'neutral' }
 export interface RibF extends Base { type: 'rib'; sketch: string; thickness: Expr; flip?: boolean }
 
-export type Feature = SketchF | ExtrudeF | RevolveF | FilletF | ChamferF | ShellF | HoleF | PatternF | MirrorF | SweepF | LoftF | DraftF | RibF;
+export interface ThreadF extends Base { type: 'thread'; face: FaceRef | null; size: string; pitch: Expr; length: Expr; clearance: Expr; fromEnd?: boolean; full?: boolean }
+export interface TextF extends Base { type: 'text'; plane: PlaneRef; text: string; size: Expr; x: Expr; y: Expr; angle: Expr; depth: Expr; op: 'add' | 'cut'; align?: 'left' | 'center' }
+export interface SplitF extends Base { type: 'split'; plane: 'XY' | 'XZ' | 'YZ'; offset: Expr; keep: 'both' | 'positive' | 'negative'; gap: Expr; dowels: number; dowelD: Expr; dowelLen: Expr; clearance: Expr }
+export interface BossF extends Base { type: 'boss'; plane: PlaneRef; points: [number, number][]; size: string; od: Expr; insertD: Expr; height: Expr; holeDepth: Expr }
+export interface SnapF extends Base { type: 'snap'; plane: PlaneRef; point: [number, number] | null; angle: Expr; length: Expr; thickness: Expr; width: Expr; lip: Expr; lead: Expr }
+export interface LipF extends Base { type: 'lip'; face: FaceRef | null; kind: 'lip' | 'groove'; height: Expr; width: Expr; clearance: Expr }
+export interface CombineF extends Base { type: 'combine'; op: 'union' | 'subtract' | 'intersect'; target: number; tools: number[] }
+export interface MoveF extends Base { type: 'move'; bodies: number[]; dx: Expr; dy: Expr; dz: Expr; axis: 'x' | 'y' | 'z'; angle: Expr; copy?: boolean }
+export interface ImportF extends Base { type: 'import'; file: string; format: 'step'; data: string /* base64 */ }
+
+export type Feature = SketchF | ExtrudeF | RevolveF | FilletF | ChamferF | ShellF | HoleF | PatternF | MirrorF | SweepF | LoftF | DraftF | RibF
+  | ThreadF | TextF | SplitF | BossF | SnapF | LipF | CombineF | MoveF | ImportF;
 export type FeatureType = Feature['type'];
 
 export interface Material { name: string; density: number /* g/cm3 */; pricePerKg: number }
@@ -119,6 +130,8 @@ export function newProject(): Project {
 export interface FaceInfo {
   id: number; owner: string | null; type: string; area: number;
   center: V3; normal: V3 | null; xDir: V3 | null;
+  cyl?: { base: V3; dir: V3; r: number; len: number; internal: boolean };
+  body?: number;
 }
 export interface EdgeInfo { id: number; owner: string | null; type: string; length: number; mid: V3; tan: V3; pts?: V3[] /* start, 1/4, mid, end */ }
 export interface SketchDisplay { featureId: string; lines: number[]; consLines?: number[]; origin: V3; xDir: V3; normal: V3; dof?: number; status?: 'ok' | 'conflict' | 'redundant' | 'failed' }
@@ -130,6 +143,7 @@ export interface RebuildResult {
   edgeInfo: EdgeInfo[];
   sketches: SketchDisplay[];
   props: { volume: number; area: number; com: V3; bbox: [V3, V3] } | null;
+  bodies?: { tri: [number, number]; volume: number; bbox: [V3, V3] }[];
   errors: { featureId: string; message: string }[];
   ms: number;
 }
