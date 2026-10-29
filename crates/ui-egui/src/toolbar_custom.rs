@@ -61,6 +61,9 @@ pub fn buttons(app: &SolveApp, tab: &str, panel: &str, cmds: &[&'static CommandS
 }
 
 /// The panels of a tab with their commands and default button counts (what the toolbar draws).
+/// Commands jasCAD leaves off the ribbon and its menus (still runnable from the command line).
+const HIDDEN: [&str; 7] = ["solid.box", "solid.cylinder", "solid.sphere", "solid.torus", "solid.pipe", "solid.bounding_solid", "solid.boundary_fill"];
+
 pub fn panel_lists(tab: &str) -> Vec<(&'static str, Vec<&'static CommandSpec>, usize)> {
     let specs = command_specs();
     crate::toolbar::panels(tab)
@@ -71,6 +74,7 @@ pub fn panel_lists(tab: &str) -> Vec<(&'static str, Vec<&'static CommandSpec>, u
                 None => (specs.iter().filter(|c| c.tab == tab && c.panel == *panel).copied().collect(), crate::toolbar::promoted(tab, panel)),
             };
             let cmds = crate::sketch_tools::also_in(tab, panel, cmds, &specs);
+            let cmds = cmds.into_iter().filter(|c| !HIDDEN.contains(&c.id)).collect();
             (*panel, cmds, promote)
         })
         .collect()

@@ -530,6 +530,18 @@ mod web {
                         if let Some(p) = cc.storage.and_then(|s| solidcraft_ui_egui::prefs::stored(|k| s.get_string(k))) {
                             app.load_prefs(&p);
                         }
+                        // jasCAD on touch screens: tablets get roomier controls; phones start with
+                        // the feature tree hidden (the ☰ button in the title bar brings it back).
+                        if let Some(w) = web_sys::window() {
+                            let width = w.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1280.0);
+                            if w.navigator().max_touch_points() > 0 && width >= 760.0 && app.preferences.ui_scale == 1.0 {
+                                app.preferences.ui_scale = 1.15;
+                            }
+                            if width < 760.0 {
+                                app.ui.show_browser = false;
+                                app.ui.show_timeline = false;
+                            }
+                        }
                         if let Some(rs) = &cc.wgpu_render_state {
                             // eframe's web painter has no stencil buffer.
                             app.set_wgpu(rs, DEPTH_BITS, 0, 1);
