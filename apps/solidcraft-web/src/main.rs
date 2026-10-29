@@ -533,11 +533,13 @@ mod web {
                         // jasCAD on touch screens: tablets get roomier controls; phones start with
                         // the feature tree hidden (the ☰ button in the title bar brings it back).
                         if let Some(w) = web_sys::window() {
-                            let width = w.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1280.0);
-                            if w.navigator().max_touch_points() > 0 && width >= 760.0 && app.preferences.ui_scale == 1.0 {
+                            let px = |v: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(1000.0);
+                            // A phone in either orientation has a short side under 600 px; a tablet doesn't.
+                            let phone = px(w.inner_width()).min(px(w.inner_height())) < 600.0;
+                            if w.navigator().max_touch_points() > 0 && !phone && app.preferences.ui_scale == 1.0 {
                                 app.preferences.ui_scale = 1.15;
                             }
-                            if width < 760.0 {
+                            if phone {
                                 app.ui.show_browser = false;
                                 app.ui.show_timeline = false;
                             }

@@ -23,7 +23,7 @@
   - pinch zooms around the point between your fingers;
   - a tap still selects, and drawing in a sketch works with one finger.
 - **Tablets:** controls are 15% larger on touch devices.
-- **Phones:** the feature tree starts hidden so the model gets the whole screen.
+- **Phones** (short side under 600 px, either orientation): the feature tree starts hidden so the model gets the whole screen.
 - **☰ button** in the title bar shows or hides the feature tree and browser.
 - Feature tree rows are taller (30 px) so they are easy to tap.
 
@@ -33,6 +33,7 @@
 
 ### Tested
 - Built and ran the desktop app and checked the new ribbon, title bar and feature tree with screenshots.
+- Opened the web build in headless Chrome with touch on: tablet (1180×820) with 15% larger controls; phone portrait and landscape with the tree hidden. Dragged with one finger and pinched with two to check the gestures.
 
 ## v0.5.0 — jasCAD on the SolidCraft engine (2026-10-19)
 
