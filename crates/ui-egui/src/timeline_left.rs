@@ -751,7 +751,7 @@ fn vertical_features(app: &mut SolveApp, ui: &mut egui::Ui) {
         let has_patterns = matches!(kind, TimelineKind::Sketch) && crate::sketch_pattern_tree::has_patterns(app, *id);
         let pattern_key = format!("timeline/sketch/{id}/patterns");
         let patterns_open = crate::browser::is_open(app, &pattern_key, true);
-        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click_and_drag());
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click_and_drag());
         let fold_rect = Rect::from_min_size(rect.left_top() + vec2(indent, 0.0), vec2(16.0, rect.height()));
         let on_fold = has_patterns && response.interact_pointer_pos().is_some_and(|p| fold_rect.contains(p));
         crate::scenario::publish_handle(&format!("timeline:{name}"), rect.center());

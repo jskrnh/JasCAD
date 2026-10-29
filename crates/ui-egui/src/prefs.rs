@@ -474,7 +474,7 @@ impl Default for Prefs {
             save_mesh_slicer: String::new(),
             custom_slicers: Vec::new(),
             ai_features: true,
-            ai_toolbar_button: true,
+            ai_toolbar_button: false,
             agents: Vec::new(),
             agent_default: String::new(),
             ai_permissions: crate::agent_chat::agents::Mode::Edits,

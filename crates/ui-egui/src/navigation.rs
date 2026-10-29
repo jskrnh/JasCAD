@@ -385,9 +385,24 @@ pub(crate) fn handle(app: &mut SolveApp, ui: &mut egui::Ui, rect: Rect, resp: &e
         // Ctrl+left drag from empty space orbits in every preset (Cmd on macOS). A Ctrl+click
         // still selects, and Ctrl on geometry still drags it without snapping.
         let ctrl_orbit = (mods.ctrl || mods.command) && !mods.shift && !mods.alt && empty_space(app);
-        app.viewport.primary_nav = preset.or(ctrl_orbit.then_some(NavMode::Orbit));
+        // A finger on empty space orbits (touch screens have no middle button). Not while
+        // sketching: the sketch keeps its view square to it, and a finger there draws.
+        let touch_orbit = ui.input(|i| i.any_touches()) && app.session.active_sketch.is_none() && empty_space(app);
+        app.viewport.primary_nav = preset.or((ctrl_orbit || touch_orbit).then_some(NavMode::Orbit));
     } else if !primary_down && !primary_released {
         app.viewport.primary_nav = None;
+    }
+    // Two fingers: the first finger's motion pans (never selects), and the spread zooms.
+    if let Some(mt) = ui.input(|i| i.multi_touch()).filter(|_| inside) {
+        app.viewport.primary_nav = Some(NavMode::Pan);
+        if mt.zoom_delta.is_finite() && mt.zoom_delta > 0.0 && (mt.zoom_delta - 1.0).abs() > 1e-4 {
+            app.viewport.orbit_snap = None;
+            app.viewport.orbit_free = None;
+            app.cancel_view_animation();
+            let f = f64::from(mt.zoom_delta).powf(-crate::prefs::zoom_sign(app)).clamp(0.05, 20.0);
+            let anchor = zoom_anchor(app, rect, Some(mt.center_pos), caps.orbit);
+            app.cam.zoom_at(f, anchor);
+        }
     }
     // Hold Space for a momentary pan: the hand tool of design apps. It overrides whatever the
     // left button would otherwise do - selecting, dragging geometry, the preset's binding or the

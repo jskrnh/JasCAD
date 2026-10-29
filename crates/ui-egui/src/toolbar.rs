@@ -8,7 +8,8 @@ use serde_json::json;
 use crate::theme::Tokens;
 use crate::{SolveApp, icons};
 
-pub const TABS: &[&str] = &["SOLID", "SURFACE", "MESH", "SHEET METAL", "PLASTIC", "UTILITIES"];
+// jasCAD keeps a lean core: Sketch (while sketching), Solid and Surface.
+pub const TABS: &[&str] = &["SOLID", "SURFACE"];
 
 /// Legacy paint arguments and non-SVG affordances follow the same semantic palette as the icon.
 /// The requested icon id determines its meaning on ribbons, menus and drag previews alike.
@@ -222,6 +223,7 @@ fn help_x(bar: Rect, captions: f32) -> f32 {
 
 /// The Report a bug button: labelled when there is room for its text (`label_width`, measured in
 /// the current language), otherwise just the icon.
+#[allow(dead_code)] // kept for its tests; jasCAD hides the button
 fn report_rect(bar: Rect, captions: f32, tabs_start: f32, label_width: f32) -> (Rect, bool) {
     let right = bar.right() - captions - RIGHT_GROUP;
     // Icon, text and a margin; never narrower than the English button.
@@ -285,6 +287,7 @@ pub(crate) fn offer_pill(
 }
 
 /// Where the Report a bug text starts, from the button's left edge.
+#[allow(dead_code)]
 const REPORT_TEXT_X: f32 = 29.0;
 
 /// The application bar's height: the window's title bar on desktop builds.
@@ -326,6 +329,22 @@ pub fn app_bar(app: &mut SolveApp, ui: &mut egui::Ui) {
             ui.painter().text(pos2(left + 36.0, r.center().y), Align2::LEFT_CENTER, "jasCAD", FontId::proportional(15.0), t.app_bar_text);
         }
         let mut x = left + if compact_actions { 60.0 } else { 128.0 };
+        {
+            let br = Rect::from_center_size(pos2(x - 4.0, r.center().y), vec2(30.0, 28.0));
+            x += 30.0;
+            let resp = ui.interact(br, ui.id().with(("ab", "tree")), Sense::click());
+            if resp.hovered() || app.ui.show_browser {
+                ui.painter().rect_filled(br, 5.0, t.app_bar_hover);
+            }
+            for dy in [-5.0, 0.0, 5.0] {
+                let y = br.center().y + dy;
+                ui.painter().line_segment([pos2(br.center().x - 7.0, y), pos2(br.center().x + 7.0, y)], Stroke::new(1.6, t.app_bar_text));
+            }
+            if resp.on_hover_text("Feature tree").clicked() {
+                app.ui.show_browser = !app.ui.show_browser;
+                app.ui.show_timeline = app.ui.show_browser;
+            }
+        }
         // While a file loads the design waits: no menus or commands from the bar.
         let idle = !app.file_load.busy();
         // The File menu: a text button (New, Open, Save, Save As, Export…). Its handle keeps the
@@ -398,10 +417,9 @@ pub fn app_bar(app: &mut SolveApp, ui: &mut egui::Ui) {
         // Document tabs (Home first), on the left after File, Undo and Redo.
         let captions = if app.custom_titlebar { crate::titlebar::WIDTH } else { 0.0 };
         let tabs_start = x - step + 25.0;
-        let report_text = crate::i18n::tr("ui.report_a_bug");
-        let report_font = FontId::proportional(13.0);
-        let label_width = ui.painter().layout_no_wrap(report_text.to_string(), report_font.clone(), t.app_bar_text).size().x;
-        let (report, report_label) = report_rect(r, captions, tabs_start, label_width);
+        // jasCAD has no Report a bug button: its slot is a zero-width point left of Help.
+        let report = Rect::from_min_size(pos2(help_x(r, captions) - 18.0, r.top() + 4.0), vec2(0.0, 26.0));
+        let report_label = false;
         // Help, on the right between Report a bug and Preferences.
         if click(ui, help_x(r, captions), "help", app.tr("ui.help"), true) {
             app.help.menu = !app.help.menu;
@@ -422,20 +440,6 @@ pub fn app_bar(app: &mut SolveApp, ui: &mut egui::Ui) {
         let mut tabs_ui = ui.new_child(egui::UiBuilder::new().max_rect(tabs_rect));
         tabs_ui.set_clip_rect(tabs_rect.intersect(ui.clip_rect()));
         crate::documents::tabs(app, &mut tabs_ui, r, tabs_start, tabs_end);
-        let response = ui.interact(report, ui.id().with("sc_report_button"), Sense::click());
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), report_text));
-        crate::scenario::publish_handle("titlebar:report", report.center());
-        crate::scenario::publish_rect("titlebar:report", report);
-        ui.painter().rect_filled(report, 4.0, if response.hovered() || response.has_focus() { t.hover } else { t.app_bar });
-        ui.painter().rect_stroke(report, 4.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-        let icon = Rect::from_center_size(pos2(report.left() + 14.0, report.center().y), vec2(18.0, 18.0));
-        icons::paint_on(ui.painter(), icon, "bug_report", None, 1.0);
-        if report_label {
-            ui.painter().text(pos2(report.left() + REPORT_TEXT_X, report.center().y), Align2::LEFT_CENTER, report_text, report_font, t.app_bar_text);
-        }
-        if response.on_hover_text(crate::i18n::tr_label("Report a bug — review a screenshot and open a GitHub draft")).clicked() {
-            crate::help::run(app, &ui.ctx().clone(), "report");
-        }
         // Preferences, at the top right (also Ctrl+,).
         let gear = Rect::from_center_size(pos2(r.right() - captions - 70.0, r.center().y), vec2(24.0, 24.0));
         let gresp = ui.interact(gear, ui.id().with("sc_prefs_button"), Sense::click());
@@ -669,36 +673,9 @@ pub fn toolbar(app: &mut SolveApp, ui: &mut egui::Ui) {
         if bg.secondary_clicked() {
             crate::context_menu::open_for(app, bg.interact_pointer_pos().unwrap_or(r.left_bottom()), crate::context_menu::Target::Toolbar);
         }
-        // Workspace selector and tabs.
         let tabs_y = r.top() + 2.0;
-        // The workspace switcher spans the toolbar's height (the tab row and the panel row).
-        let ws = Rect::from_min_max(pos2(r.left() + 6.0, r.top() + 4.0), pos2(r.left() + 104.0, r.bottom() - 5.0));
-        let wresp = ui.interact(ws, ui.id().with("workspace_switcher"), Sense::click());
-        painter.rect(ws, 4.0, if wresp.hovered() { t.hover } else { t.field }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-        let workspace_icon = if crate::render_workspace::active(app) { "ws_render" } else { "ws_design" };
-        icons::paint(
-            &painter,
-            Rect::from_center_size(pos2(ws.center().x, ws.top() + 24.0), vec2(26.0, 26.0)),
-            workspace_icon,
-            t.icon,
-            t.icon_fill,
-            t.accent,
-        );
-        painter.text(
-            pos2(ws.center().x - 5.0, ws.top() + 52.0),
-            Align2::CENTER_CENTER,
-            app.tr_label(if crate::render_workspace::active(app) { "RENDER" } else { crate::toolbar_custom::WORKSPACE }),
-            FontId::proportional(12.0),
-            t.text,
-        );
-        caret(&painter, pos2(ws.center().x + 27.0, ws.top() + 52.0), t.text);
-        painter.text(pos2(ws.center().x, ws.top() + 69.0), Align2::CENTER_CENTER, app.tr("ui.workspace"), FontId::proportional(10.0), t.text_dim);
-        if wresp.on_hover_text(app.tr("ui.change_workspace")).clicked() {
-            crate::context_menu::toggle_for(app, ws, ws.left_bottom(), crate::context_menu::Target::Workspace);
-        }
         crate::scenario::publish_rect("toolbar", r);
-        crate::scenario::publish_rect("workspace_switcher", ws);
-        let mut x = r.left() + 112.0;
+        let mut x = r.left() + 10.0;
         let mut tabs: Vec<&str> = Vec::new();
         if sketching {
             tabs.push("SKETCH");
@@ -745,7 +722,7 @@ pub fn toolbar(app: &mut SolveApp, ui: &mut egui::Ui) {
             (None, Some(_)) => app.last_command.as_ref().map(|(id, _)| id.clone()),
             _ => None,
         };
-        let mut px = r.left() + 112.0;
+        let mut px = r.left() + 8.0;
         let top = r.top() + 26.0;
         let mut drop: Option<(&'static str, &'static str, Option<&'static str>)> = None;
         let mut menu: Option<(egui::Pos2, &'static str)> = None;

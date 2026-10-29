@@ -4,6 +4,37 @@
 
 *jasCAD was called Forge before v0.2.0. From v0.5.0 it is built on SolidCraft.*
 
+## v0.6.0 — Minimal, touch-friendly jasCAD (2026-10-28)
+
+### Changed
+- **Leaner app:**
+  - The ribbon now has only Solid and Surface, plus Sketch while you sketch. Mesh, Sheet Metal, Plastic and Utilities are gone.
+  - The Box, Cylinder, Sphere, Torus, Pipe, Bounding Solid and Boundary Fill commands are off the ribbon and its menus. They still run from the command line.
+  - The Design/Render workspace switcher, the Report a bug button and the AI button (now off by default) are removed to give the ribbon more room.
+- **Cleaner look** (Apple-style restraint):
+  - three text greys, white and soft-grey surfaces, and one blue accent (#0071e3);
+  - softer viewport background and grid;
+  - rounded controls without outlines, with more space between them.
+
+### New
+- **Touch screens:**
+  - one finger on empty space orbits the model;
+  - two fingers pan;
+  - pinch zooms around the point between your fingers;
+  - a tap still selects, and drawing in a sketch works with one finger.
+- **Tablets:** controls are 15% larger on touch devices.
+- **Phones** (short side under 600 px, either orientation): the feature tree starts hidden so the model gets the whole screen.
+- **☰ button** in the title bar shows or hides the feature tree and browser.
+- Feature tree rows are taller (30 px) so they are easy to tap.
+
+### Known limitations
+- On a phone the ribbon folds commands into drop-down menus to fit the width. jasCAD works on a phone, but a tablet or computer is much more comfortable.
+- The browser app still needs WebGPU: current Chrome, Edge or Safari on iPad/iPhone with iOS 26.
+
+### Tested
+- Built and ran the desktop app and checked the new ribbon, title bar and feature tree with screenshots.
+- Opened the web build in headless Chrome with touch on: tablet (1180×820) with 15% larger controls; phone portrait and landscape with the tree hidden. Dragged with one finger and pinched with two to check the gestures.
+
 ## v0.5.0 — jasCAD on the SolidCraft engine (2026-10-19)
 
 jasCAD now runs on [SolidCraft](https://github.com/bherbruck/solidcraft) 0.16.2, an open-source

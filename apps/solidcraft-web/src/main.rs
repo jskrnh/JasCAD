@@ -530,6 +530,20 @@ mod web {
                         if let Some(p) = cc.storage.and_then(|s| solidcraft_ui_egui::prefs::stored(|k| s.get_string(k))) {
                             app.load_prefs(&p);
                         }
+                        // jasCAD on touch screens: tablets get roomier controls; phones start with
+                        // the feature tree hidden (the ☰ button in the title bar brings it back).
+                        if let Some(w) = web_sys::window() {
+                            let px = |v: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(1000.0);
+                            // A phone in either orientation has a short side under 600 px; a tablet doesn't.
+                            let phone = px(w.inner_width()).min(px(w.inner_height())) < 600.0;
+                            if w.navigator().max_touch_points() > 0 && !phone && app.preferences.ui_scale == 1.0 {
+                                app.preferences.ui_scale = 1.15;
+                            }
+                            if phone {
+                                app.ui.show_browser = false;
+                                app.ui.show_timeline = false;
+                            }
+                        }
                         if let Some(rs) = &cc.wgpu_render_state {
                             // eframe's web painter has no stencil buffer.
                             app.set_wgpu(rs, DEPTH_BITS, 0, 1);

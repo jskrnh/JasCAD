@@ -386,7 +386,12 @@ fn visuals(dark: bool) -> egui::Visuals {
     v.widgets.hovered.bg_fill = t.hover;
     // egui uses the open-state fill for a movable window's active title bar.
     v.widgets.open.weak_bg_fill = t.panel_header;
-    v.window_corner_radius = egui::CornerRadius::same(6);
+    v.window_corner_radius = egui::CornerRadius::same(12);
+    // Soft, rounded controls (jasCAD's Apple-style chrome): no button outlines, 8 px corners.
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+        w.corner_radius = egui::CornerRadius::same(8);
+        w.bg_stroke = Stroke::NONE;
+    }
     v
 }
 
@@ -395,8 +400,10 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_theme(if dark { egui::Theme::Dark } else { egui::Theme::Light });
     ctx.set_visuals(visuals(dark));
     ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(6.0, 4.0);
-        s.spacing.button_padding = egui::vec2(6.0, 3.0);
+        // Roomier spacing: easier to hit with a finger, calmer to look at.
+        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        s.spacing.button_padding = egui::vec2(10.0, 5.0);
+        s.spacing.interact_size.y = 26.0;
     });
 }
 
