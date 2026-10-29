@@ -4,6 +4,20 @@
 
 *jasCAD was called Forge before v0.2.0. From v0.5.0 it is built on SolidCraft.*
 
+## v0.6.1 — Touch sketching and Helix (2026-10-29)
+
+### Added
+- **Helix** (Solid › Create) replaces Coil. You set the diameter plus two of revolutions, height and pitch, along with the start angle and direction. It makes a 3D sketch curve that you can use as a Sweep path. Coil still runs from the command line, so older designs keep working.
+- **Select tool:** a pointer button sits first on the Sketch ribbon and ends whatever drawing tool is active.
+- **Selection count:** while you sketch, a chip at the top of the view shows how many entities are selected, as in Onshape. Tap the chip to clear the selection.
+
+### Changed
+- **Sketch selection:** tapping an entity adds it to the selection, and tapping it again removes it, so you no longer need Ctrl. Tapping empty space clears the selection.
+- **Touch drawing:** on a touch screen, a drawing tool (line, rectangle, circle and so on) ends after one shape and you are back in Select. Touch screens have no Esc key or right-click to end a tool.
+
+### Fixed
+- **Insert › Canvas** in the browser now opens a picture picker for JPG, PNG, GIF, WebP, BMP and TIFF. Before, nothing could be picked. GIF, WebP, BMP and TIFF pictures now display too.
+
 ## v0.6.0 — Minimal, touch-friendly jasCAD (2026-10-28)
 
 ### Changed

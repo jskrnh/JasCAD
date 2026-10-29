@@ -511,7 +511,11 @@ mod web {
                         let panel = files.clone();
                         let services = Services {
                             // Open shows the browser's files (and the computer's, from there).
-                            pick_open: Some(Box::new(move |_: &[&str]| {
+                            // A picture (a canvas) comes straight from the computer.
+                            pick_open: Some(Box::new(move |exts: &[&str]| {
+                                if exts.contains(&"jpg") {
+                                    return files::pick_upload(exts);
+                                }
                                 panel.panel.set(true);
                                 Box::pin(std::future::ready(None))
                             })),

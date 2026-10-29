@@ -570,6 +570,7 @@
   "cmd.solid_boundary_fill": "Vyplnění hranicemi",
   "cmd.solid_bounding_solid": "Obalové těleso",
   "cmd.solid_emboss": "Reliéf",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Posunout/kopírovat",
   "cmd.solid_offset_face": "Odsadit plochu",
   "cmd.solid_press_pull": "Tlačit/táhnout",

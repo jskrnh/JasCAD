@@ -625,6 +625,15 @@ impl Dialog {
                 },
                 vec![],
             ),
+            "solid.helix" => Dialog::new(
+                Kind::Primitive {
+                    cmd: "solid.helix",
+                    fields: vec![("diameter", length_default(s, "40")), ("revolutions", "4".into()), ("pitch", length_default(s, "8"))],
+                    operation: 0,
+                    at: None,
+                },
+                vec![],
+            ),
             "solid.coil" => Dialog::new(
                 Kind::Primitive {
                     cmd: "solid.coil",
@@ -1456,6 +1465,7 @@ fn title(k: &Kind) -> &'static str {
             "solid.cylinder" => "CYLINDER",
             "solid.sphere" => "SPHERE",
             "solid.coil" => "COIL",
+            "solid.helix" => "HELIX",
             _ => "TORUS",
         },
         Kind::Combine { .. } => "COMBINE",
@@ -2991,7 +3001,8 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
                             ui.end_row();
                         }
                     }
-                    Kind::Primitive { fields, operation, at, .. } => {
+                    Kind::Primitive { cmd, fields, operation, at } => {
+                        let curve = *cmd == "solid.helix";
                         for (k, v) in fields.iter_mut() {
                             row_label(ui, k);
                             enter |= field(ui, v);
@@ -3007,9 +3018,12 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
                             });
                             ui.end_row();
                         }
-                        row_label(ui, "Operation");
-                        combo(ui, "pr_op", &OP_LABELS, operation);
-                        ui.end_row();
+                        // A helix is a curve: it makes no body, so it has no operation.
+                        if !curve {
+                            row_label(ui, "Operation");
+                            combo(ui, "pr_op", &OP_LABELS, operation);
+                            ui.end_row();
+                        }
                     }
                     Kind::Combine { operation, keep_tools } => {
                         row_label(ui, "Operation");
@@ -4335,7 +4349,7 @@ fn dialog_commands(app: &SolveApp, d: &Dialog) -> Result<Vec<(String, Value)>, S
                     "solid.box" => {
                         p.insert("corner".into(), box_corner(s, fields, point, normal));
                     }
-                    "solid.cylinder" | "solid.coil" => {
+                    "solid.cylinder" | "solid.coil" | "solid.helix" => {
                         p.insert("base".into(), pt(point));
                         if let Some(n) = normal {
                             p.insert("axis".into(), pt(n));

@@ -496,3 +496,46 @@ pub fn take_drops(files: &Rc<Files>, raw: &mut egui::RawInput) {
         });
     }
 }
+
+/// Pick one file of these extensions from the computer (pictures for a canvas, say) and keep it
+/// in the engine's files: the answer is its path, or `None` when the picker is closed.
+pub fn pick_upload(extensions: &[&str]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>>>> {
+    let accept = extensions.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(",");
+    let promise = js_sys::Promise::new(&mut |resolve: Function, _reject: Function| {
+        let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+            let _ = resolve.call1(&JsValue::NULL, &JsValue::NULL);
+            return;
+        };
+        let Ok(input) = doc.create_element("input").map(|e| e.unchecked_into::<web_sys::HtmlInputElement>()) else {
+            let _ = resolve.call1(&JsValue::NULL, &JsValue::NULL);
+            return;
+        };
+        input.set_type("file");
+        input.set_accept(&accept);
+        let _ = input.set_attribute("style", "display:none");
+        if let Some(body) = doc.body() {
+            let _ = body.append_child(&input);
+        }
+        let (el, done) = (input.clone(), resolve.clone());
+        let on_change = Closure::once_into_js(move || {
+            el.remove();
+            let file = el.files().and_then(|l| l.get(0)).map(JsValue::from).unwrap_or(JsValue::NULL);
+            let _ = done.call1(&JsValue::NULL, &file);
+        });
+        let el = input.clone();
+        let on_cancel = Closure::once_into_js(move || {
+            el.remove();
+            let _ = resolve.call1(&JsValue::NULL, &JsValue::NULL);
+        });
+        let _ = input.add_event_listener_with_callback("change", on_change.unchecked_ref());
+        let _ = input.add_event_listener_with_callback("cancel", on_cancel.unchecked_ref());
+        input.click();
+    });
+    Box::pin(async move {
+        let file: web_sys::File = JsFuture::from(promise).await.ok()?.dyn_into().ok()?;
+        let bytes = blob_bytes(&file).await.ok()?;
+        let path = format!("{UPLOAD}{}", file.name());
+        vfs::insert(&path, bytes);
+        Some(path)
+    })
+}

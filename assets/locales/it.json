@@ -586,6 +586,7 @@
   "cmd.solid_boundary_fill": "Riempimento del contorno",
   "cmd.solid_bounding_solid": "Solido di ingombro",
   "cmd.solid_emboss": "Rilievo",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Sposta/Copia",
   "cmd.solid_offset_face": "Offset della faccia",
   "cmd.solid_press_pull": "Premi/Trascina",

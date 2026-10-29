@@ -590,6 +590,7 @@
   "cmd.solid_boundary_fill": "Remplissage de frontière",
   "cmd.solid_bounding_solid": "Solide englobant",
   "cmd.solid_emboss": "Embossage",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Déplacer/Copier",
   "cmd.solid_offset_face": "Décaler la face",
   "cmd.solid_press_pull": "Appuyer/Tirer",

@@ -387,6 +387,7 @@
   "cmd.solid_boundary_fill": "경계 채우기",
   "cmd.solid_bounding_solid": "둘러싸는 솔리드",
   "cmd.solid_emboss": "엠보스",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "이동/복사",
   "cmd.solid_offset_face": "면 오프셋",
   "cmd.solid_press_pull": "밀기/당기기",

@@ -164,6 +164,12 @@ fn marks(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
 /// Commands that start with a step of their own: Canvas and Decal ask for the image first,
 /// Edit Canvas opens the canvas panel. False when the command should not go on.
 pub fn start_hook(app: &mut SolveApp, id: &str) -> bool {
+    if id == "sketch.select" {
+        // jasCAD: back to the pointer (touch screens have no Esc).
+        crate::tools::finish(app);
+        app.tool = None;
+        return false;
+    }
     if id == "sketch.edit_text"
         && let Some(dialog) = crate::dialogs::Dialog::for_command(app, id)
     {
@@ -224,7 +230,7 @@ pub fn start_hook(app: &mut SolveApp, id: &str) -> bool {
         return true;
     }
     let command = id.to_string();
-    app.pick_open(move |app, path| {
+    app.pick_open_for(&["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"], move |app, path| {
         if let Some(path) = path {
             IMAGE.with(|i| *i.borrow_mut() = Some(path));
             app.last_command = solidcraft_engine::find_command(&command).map(|spec| (spec.id.into(), spec.label.into()));

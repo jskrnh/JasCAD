@@ -387,6 +387,7 @@
   "cmd.solid_boundary_fill": "Begrenzungsfüllung",
   "cmd.solid_bounding_solid": "Begrenzender Körper",
   "cmd.solid_emboss": "Prägen",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Verschieben/Kopieren",
   "cmd.solid_offset_face": "Fläche versetzen",
   "cmd.solid_press_pull": "Drücken/Ziehen",

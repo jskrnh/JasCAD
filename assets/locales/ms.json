@@ -594,6 +594,7 @@
   "cmd.solid_boundary_fill": "Isi Sempadan",
   "cmd.solid_bounding_solid": "Pepejal Pembatas",
   "cmd.solid_emboss": "Timbulkan",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Alih/Salin",
   "cmd.solid_offset_face": "Ofset Muka",
   "cmd.solid_press_pull": "Tekan Tarik",
