@@ -265,6 +265,12 @@ pub fn on_click(app: &mut SolveApp, proj: &Proj, pos: Pos2) {
     }
 }
 
+thread_local! {
+    /// jasCAD: the last input was a touch screen; a drawing tool then ends after one shape and the
+    /// pointer selects again (a touch screen has no Esc or right click to end it).
+    pub(crate) static TOUCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Put down the next point of the shape being drawn; the last point runs the command (with
 /// the typed values as dimension constraints).
 pub fn place(app: &mut SolveApp, p: (Vec2, Option<String>)) {
@@ -313,6 +319,9 @@ pub fn place(app: &mut SolveApp, p: (Vec2, Option<String>)) {
                     tool.pts = vec![tool.pts[last].clone()];
                 }
                 crate::sketch_dims::reset(&mut tool);
+                if TOUCH.get() {
+                    return;
+                }
             } else {
                 tool.pts.pop();
             }
@@ -322,6 +331,9 @@ pub fn place(app: &mut SolveApp, p: (Vec2, Option<String>)) {
             Ok(_) => {
                 tool.pts.clear();
                 crate::sketch_dims::reset(&mut tool);
+                if TOUCH.get() {
+                    return;
+                }
             }
             Err(error) => {
                 app.set_status(error, true);

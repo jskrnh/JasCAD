@@ -534,6 +534,7 @@
   "cmd.solid_boundary_fill": "Заполнение по границе",
   "cmd.solid_bounding_solid": "Габаритное тело",
   "cmd.solid_emboss": "Тиснение",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Переместить/Копировать",
   "cmd.solid_offset_face": "Смещение грани",
   "cmd.solid_press_pull": "Нажать и потянуть",

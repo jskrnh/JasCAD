@@ -594,6 +594,7 @@
   "cmd.solid_boundary_fill": "Wypełnienie konturem",
   "cmd.solid_bounding_solid": "Bryła otaczająca",
   "cmd.solid_emboss": "Wytłoczenie",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Przesuń/kopiuj",
   "cmd.solid_offset_face": "Odsuń ścianę",
   "cmd.solid_press_pull": "Wciśnij/wyciągnij",

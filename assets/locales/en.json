@@ -594,6 +594,7 @@
   "cmd.solid_boundary_fill": "Boundary Fill",
   "cmd.solid_bounding_solid": "Bounding Solid",
   "cmd.solid_emboss": "Emboss",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Move/Copy",
   "cmd.solid_offset_face": "Offset Face",
   "cmd.solid_press_pull": "Press Pull",

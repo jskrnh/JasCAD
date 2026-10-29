@@ -546,6 +546,7 @@
   "cmd.solid_boundary_fill": "Sınır dolgusu",
   "cmd.solid_bounding_solid": "Sınırlayıcı gövde",
   "cmd.solid_emboss": "Kabartma",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Taşı/Kopyala",
   "cmd.solid_offset_face": "Yüzü ötele",
   "cmd.solid_press_pull": "Bas/Çek",

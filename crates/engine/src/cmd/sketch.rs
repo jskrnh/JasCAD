@@ -32,6 +32,7 @@ pub static COMMANDS: &[CommandSpec] = &[
         .params("plane: XY|XZ|YZ | construction plane name or id | {origin, x_dir, y_dir} | {face: [world x,y,z], body?: exact world body, index?: face index, path?: complete occurrence ids, fixed?: bool}; new face attachments require a unique certified source (a flat face of a sheet metal body attaches to its panel instead, in the flat pattern's coordinates), fixed:true explicitly freezes the selected plane; offset?: expr, flip?: bool | \"x\" | \"y\" (not on a face: sketch the plane from its other side, so the normal and the default extrude direction are reversed; a half turn about the plane's own x or y axis, true picks the one keeping the sketch's y axis upward; offset still moves along the unflipped normal), project_edges?: bool, name?"),
     CommandSpec::new("sketch.edit", "Edit Sketch", edit_sketch).noundo().icon("sketch").params("sketch: id or name"),
     CommandSpec::new("sketch.finish", "Finish Sketch", finish_sketch).at("SKETCH", "FINISH SKETCH").icon("finish").enabled(in_sketch).noundo(),
+    CommandSpec::new("sketch.select", "Select", sketch_select).at("SKETCH", "CREATE").icon("select").enabled(in_sketch).noundo().params("(none): end the drawing tool; the pointer selects"),
     CommandSpec::new("sketch.line", "Line", draw_line)
         .at("SKETCH", "CREATE")
         .icon("line")
@@ -742,6 +743,11 @@ fn edit_sketch(s: &mut Session, p: &Value) -> Result<Value> {
     s.active_sketch = Some(id);
     s.revision += 1;
     Ok(json!({"sketch": id, "name": name}))
+}
+
+/// jasCAD: the Select tool. The UI ends the drawing tool; the engine has nothing to change.
+fn sketch_select(_: &mut Session, _p: &Value) -> Result<Value> {
+    Ok(serde_json::json!({"ok": true}))
 }
 
 fn finish_sketch(s: &mut Session, _p: &Value) -> Result<Value> {

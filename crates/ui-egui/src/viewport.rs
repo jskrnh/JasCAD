@@ -2455,6 +2455,17 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
             crate::tools::on_hover(app, &proj, p);
         }
     }
+    // jasCAD: remember whether a finger or a mouse is in use (a mouse move switches back).
+    ui.input(|i| {
+        if i.any_touches() {
+            crate::tools::TOUCH.set(true);
+        } else if i.pointer.delta() != vec2(0.0, 0.0)
+            && !i.pointer.any_down()
+            && !i.events.iter().any(|e| matches!(e, egui::Event::PointerButton { .. } | egui::Event::Touch { .. }))
+        {
+            crate::tools::TOUCH.set(false);
+        }
+    });
     let add = mods.shift || mods.command || mods.ctrl;
     crate::sketch_text::set_one_letter(mods.shift);
     if let Some(p) = hover.filter(|_| inside) {
@@ -2508,13 +2519,17 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
                 if crate::sketch_text_handles::over(app, &proj, p) {
                     // A text's resize or rotation handle: the text stays selected.
                 } else if !crate::sketch3d::click(app, &proj, p) {
+                    // jasCAD: in a sketch a tap toggles the entity in or out of the selection
+                    // (no Ctrl on a touch screen); a tap on empty space clears it.
+                    let sketch_tap = sketching && !resp.double_clicked();
                     match on_dim.or(on_glyph) {
-                        Some(id) => select(app, Some(Sel::SketchConstraint { id }), add),
+                        Some(id) => select(app, Some(Sel::SketchConstraint { id }), add || sketch_tap),
                         // Clicking again on the same spot selects the next thing under it (not
                         // the second click of a double-click, which has its own actions).
-                        None if !add && !resp.double_clicked() && crate::select_other::cycle_click(app, &proj, p) => {}
+                        None if !add && !sketch_tap && !resp.double_clicked() && crate::select_other::cycle_click(app, &proj, p) => {}
                         None => {
                             let sel = cand.and_then(|c| c.1);
+                            let add = add || (sketch_tap && sel.is_some());
                             select(app, sel.clone(), add);
                             crate::select_other::note_click(app, p, if add { None } else { sel });
                         }
@@ -2834,6 +2849,18 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
         } else {
             app.status = None;
+        }
+    }
+    // jasCAD: how many entities are selected, as Onshape shows it; tap the chip to clear.
+    let count = app.session.selection.len();
+    if count > 0 && app.session.active_sketch.is_some() {
+        let text = format!("{count} selected   \u{00d7}");
+        let galley = painter.layout_no_wrap(text, FontId::proportional(13.0), egui::Color32::WHITE);
+        let r = Rect::from_center_size(pos2(rect.center().x, rect.top() + 24.0), galley.size() + vec2(24.0, 12.0));
+        painter.rect_filled(r, r.height() / 2.0, t.accent);
+        painter.galley(r.min + vec2(12.0, 6.0), galley, egui::Color32::WHITE);
+        if ui.interact(r, egui::Id::new("jascad_sel_count"), egui::Sense::click()).clicked() {
+            let _ = app.run("select.clear", json!({}));
         }
     }
 }

@@ -32,7 +32,12 @@ thread_local! {
 // not route HDR through this synchronous whole-image canvas decoder.
 fn decode_reference(bytes: &[u8]) -> Option<image::DynamicImage> {
     match image::guess_format(bytes).ok()? {
-        image::ImageFormat::Png | image::ImageFormat::Jpeg => image::load_from_memory(bytes).ok(),
+        image::ImageFormat::Png
+        | image::ImageFormat::Jpeg
+        | image::ImageFormat::Gif
+        | image::ImageFormat::WebP
+        | image::ImageFormat::Bmp
+        | image::ImageFormat::Tiff => image::load_from_memory(bytes).ok(),
         _ => None,
     }
 }

@@ -594,6 +594,7 @@
   "cmd.solid_boundary_fill": "境界フィル",
   "cmd.solid_bounding_solid": "バウンディング ソリッド",
   "cmd.solid_emboss": "エンボス",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "移動/コピー",
   "cmd.solid_offset_face": "面をオフセット",
   "cmd.solid_press_pull": "プレス プル",

@@ -18,7 +18,11 @@ pub static COMMANDS: &[CommandSpec] = &[
     CommandSpec::new("solid.boundary_fill", "Boundary Fill", boundary_fill).at("SOLID", "CREATE").icon("boundary_fill").params(
         "tools: [bodies]; cells: [[x,y,z] a point inside each cell to fill (a cell: inside some tools, outside the rest)]; operation?: new|join|cut|intersect; remove_tools?: bool",
     ),
-    CommandSpec::new("solid.coil", "Coil", coil).at("SOLID", "CREATE").icon("coil").params(
+    CommandSpec::new("solid.helix", "Helix", helix).at("SOLID", "CREATE").icon("coil").noundo().params(
+        "diameter; two of revolutions (or turns), height, pitch; base?: [x,y,z] (default: the origin); axis?: X|Y|Z|[x,y,z] (default Z); \
+         start_angle?: deg; clockwise?: bool; name?. Makes a 3D sketch holding the helix curve, a path for Sweep",
+    ),
+    CommandSpec::new("solid.coil", "Coil", coil).icon("coil").params(
         "diameter; two of revolutions (or turns), height, pitch; section_size; section?: circular|square; section_position?: inside|center|outside; \
          base?: [x,y,z] (numbers in mm or length expressions; default: the origin); axis?: X|Y|Z|[x,y,z] (default Z); start_angle?; clockwise?: bool; operation?, targets?, name?, body_name?",
     ),
@@ -493,4 +497,68 @@ fn boundary_fill(s: &mut Session, p: &Value) -> Result<Value> {
             remove_tools: bool_(p, "remove_tools").unwrap_or(false),
         },
     )
+}
+
+/// jasCAD: Helix (as in Insert > Curve > Helix). A 3D sketch on the plane across the axis at the
+/// base, holding one smooth curve through points of the helix: a path for Sweep.
+fn helix(s: &mut Session, p: &Value) -> Result<Value> {
+    use serde_json::json;
+    let cmd = "solid.helix";
+    let length = |s: &Session, k: &str| -> Result<Option<f64>> {
+        match expr(p, k) {
+            Some(e) => s.doc.eval(&e, Kind::Length).map(Some).map_err(|err| bad(cmd, format!("{k}: {err}"))),
+            None => Ok(None),
+        }
+    };
+    let diameter = length(s, "diameter")?.ok_or_else(|| bad(cmd, "give `diameter`"))?;
+    let turns = match expr(p, "revolutions").or_else(|| expr(p, "turns")) {
+        Some(e) => Some(s.doc.eval(&e, Kind::Unitless).map_err(|err| bad(cmd, format!("revolutions: {err}")))?),
+        None => None,
+    };
+    let (height, pitch) = (length(s, "height")?, length(s, "pitch")?);
+    let (turns, pitch) = match (turns, height, pitch) {
+        (Some(n), _, Some(pt)) => (n, pt),
+        (Some(n), Some(h), None) if n != 0.0 => (n, h / n),
+        (None, Some(h), Some(pt)) if pt != 0.0 => (h / pt, pt),
+        _ => return Err(bad(cmd, "give two of `revolutions`, `height` and `pitch`")),
+    };
+    if !(diameter > 0.0 && diameter.is_finite() && turns > 0.0 && turns <= 200.0 && pitch.is_finite() && pitch != 0.0) {
+        return Err(bad(cmd, "needs diameter > 0, 0 < revolutions <= 200 and a non-zero pitch"));
+    }
+    let base = p.get("base").and_then(vec3).unwrap_or(Vec3::ZERO);
+    let axis = axis_dir_param(p, cmd)?.normalized().ok_or_else(|| bad(cmd, "`axis` must not be zero"))?;
+    let seed = if axis.dot(Vec3::X).abs() < 0.9 { Vec3::X } else { Vec3::Y };
+    let u = seed.cross(axis).cross(axis).normalized().ok_or_else(|| bad(cmd, "bad axis"))? * -1.0;
+    let v = axis.cross(u);
+    let start = crate::params::num(p, "start_angle").unwrap_or(0.0).to_radians();
+    let hand = if bool_(p, "clockwise").unwrap_or(false) { -1.0 } else { 1.0 };
+    // Enough fit points for a smooth curve, within the fit-point cap.
+    let max = solidcraft_sketch::MAX_FIT_POINTS - 1;
+    let per_turn = (max as f64 / turns).floor().clamp(4.0, 24.0);
+    let n = ((turns * per_turn).ceil() as usize).clamp(2, max);
+    let r = diameter / 2.0;
+    let pts: Vec<Value> = (0..=n)
+        .map(|i| {
+            let t = turns * i as f64 / n as f64;
+            let a = start + hand * t * std::f64::consts::TAU;
+            let q = base + u * (r * a.cos()) + v * (r * a.sin()) + axis * (t * pitch);
+            json!([q.x, q.y, q.z])
+        })
+        .collect();
+    let name = str_(p, "name").map(str::to_string).unwrap_or_else(|| {
+        let taken = |k: usize| s.doc.features.iter().any(|f| f.name == format!("Helix{k}"));
+        format!("Helix{}", (1..).find(|k| !taken(*k)).unwrap_or(1))
+    });
+    let plane = json!({"origin": [base.x, base.y, base.z], "x_dir": [u.x, u.y, u.z], "y_dir": [v.x, v.y, v.z]});
+    let created = s.execute("sketch.create", &json!({"plane": plane, "name": name}))?;
+    let done = (|| {
+        s.execute("sketch.options", &json!({"sketch_3d": true}))?;
+        s.execute("sketch.spline3d", &json!({"points": pts}))?;
+        s.execute("sketch.finish", &json!({}))
+    })();
+    if let Err(e) = done {
+        let _ = s.execute("sketch.finish", &json!({}));
+        return Err(e);
+    }
+    Ok(json!({"ok": true, "sketch": created.get("sketch").cloned().unwrap_or(Value::Null), "name": name, "revolutions": turns, "pitch": pitch}))
 }

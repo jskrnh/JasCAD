@@ -583,6 +583,7 @@
   "cmd.solid_boundary_fill": "Заповнення за межами",
   "cmd.solid_bounding_solid": "Охопне тіло",
   "cmd.solid_emboss": "Тиснення",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Перемістити/копіювати",
   "cmd.solid_offset_face": "Зсунути грань",
   "cmd.solid_press_pull": "Натиснути/витягнути",

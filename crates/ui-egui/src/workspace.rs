@@ -84,7 +84,7 @@ const PLASTIC_CREATE: &[&str] = &[
     "solid.cylinder",
     "solid.sphere",
     "solid.torus",
-    "solid.coil",
+    "solid.helix",
     "solid.pipe",
     "solid.pattern.rectangular",
     "solid.pattern.circular",
@@ -108,6 +108,7 @@ pub fn layout<'a>(tab: &str, panel: &str, specs: &[&'a CommandSpec]) -> Option<(
     let (ids, promoted, own_tab): (&[&str], usize, &str) = match (tab, panel) {
         ("SKETCH", "CREATE") => (
             &[
+                "sketch.select",
                 "sketch.line",
                 "sketch.rectangle.two_point",
                 "sketch.circle.center",
@@ -117,7 +118,7 @@ pub fn layout<'a>(tab: &str, panel: &str, specs: &[&'a CommandSpec]) -> Option<(
                 "sketch.spline.fit_point",
                 "sketch.point",
             ],
-            8,
+            9,
             tab,
         ),
         ("SOLID", "CONFIGURE") => (&["parameters.change", "config.table"], 2, tab),

@@ -570,6 +570,7 @@
   "cmd.solid_boundary_fill": "Encher contorno",
   "cmd.solid_bounding_solid": "Sólido envolvente",
   "cmd.solid_emboss": "Gravar en relevo",
+  "cmd.solid_helix": "Helix",
   "cmd.solid_move": "Mover/Copiar",
   "cmd.solid_offset_face": "Desprazar a cara",
   "cmd.solid_press_pull": "Empurrar/Tirar",
