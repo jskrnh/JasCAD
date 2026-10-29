@@ -1088,6 +1088,10 @@ function __wbg_get_imports() {
             const ret = arg0.inlineSize;
             return ret;
         },
+        __wbg_innerHeight_7f20e0f1a7c5a573: function() { return handleError(function (arg0) {
+            const ret = arg0.innerHeight;
+            return ret;
+        }, arguments); },
         __wbg_innerWidth_1bc526614080537c: function() { return handleError(function (arg0) {
             const ret = arg0.innerWidth;
             return ret;
