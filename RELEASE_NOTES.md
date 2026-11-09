@@ -4,6 +4,16 @@
 
 *jasCAD was called Forge before v0.2.0. From v0.5.0 it is built on SolidCraft.*
 
+## v0.6.2 — Open SolidWorks parts (2026-11-09)
+
+### Added
+- **Open SolidWorks parts (`.sldprt`)** in the browser and the desktop app, using File › Open or Insert. jasCAD reads the solid saved in the part and brings it in as an imported body, the same way STEP files come in. It does not bring in the feature tree (sketches, features, history).
+- In the browser, the Open picker now also offers FreeCAD (`.FCStd`) and Rhino (`.3dm`) files. These previously opened only in the desktop app.
+
+### Notes
+- The reader is cadmpeg's SolidWorks codec (Apache-2.0), the same work openSW credits. openSW itself is AGPL-licensed Python, so it can't be built into jasCAD.
+- Parasolid (`.x_t`) files can't be opened yet.
+
 ## v0.6.1 — Touch sketching and Helix (2026-10-29)
 
 ### Added
