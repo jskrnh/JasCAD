@@ -145,6 +145,8 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
                         "fcstd",
                         "3dm",
                         "3DM",
+                        "sldprt",
+                        "SLDPRT",
                         "3mf",
                         "3MF",
                         "stl",
@@ -160,6 +162,7 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
                 .add_filter("SolidCraft design (container or JSON)", &[io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])
                 .add_filter("STEP", &["step", "stp", "STEP", "STP"])
                 .add_filter("IGES", &["igs", "iges", "IGS", "IGES"])
+                .add_filter("SolidWorks part", &["sldprt", "SLDPRT"])
                 .add_filter("FreeCAD and Rhino", &["FCStd", "fcstd", "3dm", "3DM"])
                 .add_filter("Mesh (3MF, STL, OBJ, glTF)", &["3mf", "3MF", "stl", "STL", "obj", "OBJ", "glb", "GLB", "gltf", "GLTF"])
                 .add_filter("Sketch drawings (DXF, SVG)", &["dxf", "DXF", "svg", "SVG"])

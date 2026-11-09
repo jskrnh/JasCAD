@@ -11,8 +11,8 @@
   <meta property="og:url" content="https://jascad.jskrnh.xyz/">
   
 <script type="module">
-import init, * as bindings from './solidcraft-web-47d1a35f695fb3d5.js';
-const wasm = await init({ module_or_path: (async () => { const bufs = await Promise.all(["./solidcraft-web-47d1a35f695fb3d5_bg.wasm.part0", "./solidcraft-web-47d1a35f695fb3d5_bg.wasm.part1", "./solidcraft-web-47d1a35f695fb3d5_bg.wasm.part2"].map((u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); }))); const out = new Uint8Array(bufs.reduce((n, b) => n + b.byteLength, 0)); let o = 0; for (const b of bufs) { out.set(new Uint8Array(b), o); o += b.byteLength; } return out; })() });
+import init, * as bindings from './solidcraft-web-8127a42aa756ce28.js';
+const wasm = await init({ module_or_path: (async () => { const bufs = await Promise.all(["./solidcraft-web-8127a42aa756ce28_bg.wasm.part0", "./solidcraft-web-8127a42aa756ce28_bg.wasm.part1", "./solidcraft-web-8127a42aa756ce28_bg.wasm.part2", "./solidcraft-web-8127a42aa756ce28_bg.wasm.part3"].map((u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); }))); const out = new Uint8Array(bufs.reduce((n, b) => n + b.byteLength, 0)); let o = 0; for (const b of bufs) { out.set(new Uint8Array(b), o); o += b.byteLength; } return out; })() });
 
 
 window.wasmBindings = bindings;
@@ -34,7 +34,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
   
   
   
-<link rel="modulepreload" href="./solidcraft-web-47d1a35f695fb3d5.js" crossorigin="anonymous" integrity="sha384-/UdDZXJEkDQRmTyNTEyHKAGEGtc+zX9HUwmuFCaHFpvHOBQRWixwVHliMd7kDMiC"></head>
+<link rel="modulepreload" href="./solidcraft-web-8127a42aa756ce28.js" crossorigin="anonymous" integrity="sha384-/eU7BZddG02xIr5DGF6FefKz68kymKXr9htG/IVT+osAv4wht2nizcTNBoNve718"></head>
 <body>
   <canvas id="solidcraft_canvas"></canvas>
   <div id="solidcraft_loading" role="status"><img src="jascad-logo.svg" alt=""><span class="sr-only">Loading jasCAD&hellip;</span></div>

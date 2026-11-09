@@ -14,7 +14,7 @@
 //! return "not supported in the browser yet".
 
 /// File extensions read through cadmpeg (lower case).
-pub const NATIVE_CAD_EXTS: [&str; 2] = ["fcstd", "3dm"];
+pub const NATIVE_CAD_EXTS: [&str; 3] = ["fcstd", "3dm", "sldprt"];
 
 /// Is this a FreeCAD or Rhino file name (any case)?
 pub fn is_native_cad_path(path: &str) -> bool {
@@ -23,7 +23,6 @@ pub fn is_native_cad_path(path: &str) -> bool {
 
 /// Restate a FreeCAD or Rhino file (`file` is its name) as STEP text, with the losses
 /// and warnings cadmpeg reported. Panics inside cadmpeg become errors.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn native_cad_to_step(bytes: &[u8], file: &str) -> Result<(String, Vec<String>), String> {
     let name = std::path::Path::new(file).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| file.to_string());
     solidcraft_kernel::guard("cadmpeg import", || convert::to_step(&name, bytes).map_err(solidcraft_kernel::KernelError::Invalid)).map_err(
@@ -34,13 +33,6 @@ pub fn native_cad_to_step(bytes: &[u8], file: &str) -> Result<(String, Vec<Strin
     )
 }
 
-/// Restate a FreeCAD or Rhino file as STEP: not available in the browser yet.
-#[cfg(target_arch = "wasm32")]
-pub fn native_cad_to_step(_bytes: &[u8], file: &str) -> Result<(String, Vec<String>), String> {
-    Err(format!("{file}: not supported in the browser yet (FreeCAD and Rhino files open in the desktop app)"))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 mod convert {
     use std::io::Cursor;
 
@@ -51,7 +43,7 @@ mod convert {
     use cadmpeg_registry::{DETECTION_PREFIX_LEN, Format, InputCatalog, ResolveSourceError, ResolvedSource, build_encoder, forced_input};
 
     /// The codecs we accept (cadmpeg codec ids), whatever else the registry recognises.
-    const ACCEPTED: [&str; 2] = ["fcstd", "rhino"];
+    const ACCEPTED: [&str; 3] = ["fcstd", "rhino", "sldprt"];
 
     /// Caps for hostile input: cadmpeg's tight `service` profile, with our STEP size limit.
     pub(super) fn policy() -> DecodePolicy {
@@ -142,7 +134,6 @@ mod convert {
 
 /// cadmpeg's STEP writer calls a product it has no name for `cadmpeg_model`; name it after the
 /// file instead (as plain STEP text: letters, digits, spaces, `-`, `_` and `.` only).
-#[cfg(not(target_arch = "wasm32"))]
 fn name_unnamed_products(step: String, file: &str) -> String {
     const PLACEHOLDER: &str = "'cadmpeg_model'";
     let stem: String = std::path::Path::new(file)
